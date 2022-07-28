@@ -1,7 +1,7 @@
 <h1 align="center">
   <img src="https://raw.githubusercontent.com/neovim/neovim.github.io/master/logos/neovim-logo-300x87.png" alt="Neovim">
 </h1>
-
+**
 [Documentation](https://neovim.io/doc/general/) |
 [Chat](https://app.element.io/#/room/#neovim:matrix.org) |
 [Twitter](https://twitter.com/Neovim)
@@ -27,7 +27,7 @@ Neovim is a project that seeks to aggressively refactor Vim in order to:
 See the [Introduction](https://github.com/neovim/neovim/wiki/Introduction) wiki page and [Roadmap]
 for more information.
 
-Features
+Features *
 --------
 
 - Modern [GUIs](https://github.com/neovim/neovim/wiki/Related-projects#gui)
