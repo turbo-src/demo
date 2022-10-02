@@ -27,7 +27,7 @@ Neovim is a project that seeks to aggressively refactor Vim in order to:
 See the [Introduction](https://github.com/neovim/neovim/wiki/Introduction) wiki page and [Roadmap]
 for more information.
 
-Small change
+Small change, small change 2
 
 Features
 --------
