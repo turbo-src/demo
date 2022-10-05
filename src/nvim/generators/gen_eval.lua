@@ -28,20 +28,13 @@ local hashy = require'generators.hashy'
 local hashpipe = io.open(funcsfname, 'wb')
 
 local funcs = require('eval').funcs
-for _, func in pairs(funcs) do
-  if func.float_func then
-    func.func = "float_op_wrapper"
-    func.data = "{ .float_func = &"..func.float_func.." }"
-  end
-end
-
 local metadata = mpack.unpack(io.open(metadata_file, 'rb'):read("*all"))
 for _,fun in ipairs(metadata) do
   if fun.eval then
     funcs[fun.name] = {
       args=#fun.parameters,
       func='api_wrapper',
-      data='{ .api_handler = &method_handlers['..fun.handler_id..'] }'
+      data='&handle_'..fun.name,
     }
   end
 end
@@ -67,12 +60,11 @@ for _, name in ipairs(neworder) do
   end
   local base = def.base or "BASE_NONE"
   local func = def.func or ('f_' .. name)
-  local data = def.data or "{ .nullptr = NULL }"
-  local fast = def.fast and 'true' or 'false'
-  hashpipe:write(('  { "%s", %s, %s, %s, %s, &%s, %s },\n')
-                  :format(name, args[1], args[2], base, fast, func, data))
+  local data = def.data or "NULL"
+  hashpipe:write(('  { "%s", %s, %s, %s, &%s, (FunPtr)%s },\n')
+                  :format(name, args[1], args[2], base, func, data))
 end
-hashpipe:write('  { NULL, 0, 0, BASE_NONE, false, NULL, { .nullptr = NULL } },\n')
+hashpipe:write('  { NULL, 0, 0, BASE_NONE, NULL, NULL },\n')
 hashpipe:write("};\n\n")
 hashpipe:write(hashfun)
 hashpipe:close()

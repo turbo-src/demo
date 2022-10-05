@@ -187,7 +187,7 @@ void buf_updates_unload(buf_T *buf, bool can_reload)
 }
 
 void buf_updates_send_changes(buf_T *buf, linenr_T firstline, int64_t num_added,
-                              int64_t num_removed)
+                              int64_t num_removed, bool send_tick)
 {
   size_t deleted_codepoints, deleted_codeunits;
   size_t deleted_bytes = ml_flush_deleted_bytes(buf, &deleted_codepoints,
@@ -196,9 +196,6 @@ void buf_updates_send_changes(buf_T *buf, linenr_T firstline, int64_t num_added,
   if (!buf_updates_active(buf)) {
     return;
   }
-
-  // Don't send b:changedtick during 'inccommand' preview if "buf" is the current buffer.
-  bool send_tick = !(cmdpreview && buf == curbuf);
 
   // if one the channels doesn't work, put its ID here so we can remove it later
   uint64_t badchannelid = 0;
@@ -256,7 +253,7 @@ void buf_updates_send_changes(buf_T *buf, linenr_T firstline, int64_t num_added,
   for (size_t i = 0; i < kv_size(buf->update_callbacks); i++) {
     BufUpdateCallbacks cb = kv_A(buf->update_callbacks, i);
     bool keep = true;
-    if (cb.on_lines != LUA_NOREF && (cb.preview || !cmdpreview)) {
+    if (cb.on_lines != LUA_NOREF && (cb.preview || !(State & MODE_CMDPREVIEW))) {
       Array args = ARRAY_DICT_INIT;
       Object items[8];
       args.size = 6;  // may be increased to 8 below
@@ -285,13 +282,14 @@ void buf_updates_send_changes(buf_T *buf, linenr_T firstline, int64_t num_added,
         args.items[7] = INTEGER_OBJ((Integer)deleted_codeunits);
       }
       textlock++;
-      Object res = nlua_call_ref(cb.on_lines, "lines", args, false, NULL);
+      Object res = nlua_call_ref(cb.on_lines, "lines", args, true, NULL);
       textlock--;
 
       if (res.type == kObjectTypeBoolean && res.data.boolean == true) {
         buffer_update_callbacks_free(cb);
         keep = false;
       }
+      api_free_object(res);
     }
     if (keep) {
       kv_A(buf->update_callbacks, j++) = kv_A(buf->update_callbacks, i);
@@ -314,27 +312,27 @@ void buf_updates_send_splice(buf_T *buf, int start_row, colnr_T start_col, bcoun
   for (size_t i = 0; i < kv_size(buf->update_callbacks); i++) {
     BufUpdateCallbacks cb = kv_A(buf->update_callbacks, i);
     bool keep = true;
-    if (cb.on_bytes != LUA_NOREF && (cb.preview || !cmdpreview)) {
-      MAXSIZE_TEMP_ARRAY(args, 11);
+    if (cb.on_bytes != LUA_NOREF && (cb.preview || !(State & MODE_CMDPREVIEW))) {
+      FIXED_TEMP_ARRAY(args, 11);
 
       // the first argument is always the buffer handle
-      ADD_C(args, BUFFER_OBJ(buf->handle));
+      args.items[0] = BUFFER_OBJ(buf->handle);
 
       // next argument is b:changedtick
-      ADD_C(args, INTEGER_OBJ(buf_get_changedtick(buf)));
+      args.items[1] = INTEGER_OBJ(buf_get_changedtick(buf));
 
-      ADD_C(args, INTEGER_OBJ(start_row));
-      ADD_C(args, INTEGER_OBJ(start_col));
-      ADD_C(args, INTEGER_OBJ(start_byte));
-      ADD_C(args, INTEGER_OBJ(old_row));
-      ADD_C(args, INTEGER_OBJ(old_col));
-      ADD_C(args, INTEGER_OBJ(old_byte));
-      ADD_C(args, INTEGER_OBJ(new_row));
-      ADD_C(args, INTEGER_OBJ(new_col));
-      ADD_C(args, INTEGER_OBJ(new_byte));
+      args.items[2] = INTEGER_OBJ(start_row);
+      args.items[3] = INTEGER_OBJ(start_col);
+      args.items[4] = INTEGER_OBJ(start_byte);
+      args.items[5] = INTEGER_OBJ(old_row);
+      args.items[6] = INTEGER_OBJ(old_col);
+      args.items[7] = INTEGER_OBJ(old_byte);
+      args.items[8] = INTEGER_OBJ(new_row);
+      args.items[9] = INTEGER_OBJ(new_col);
+      args.items[10] = INTEGER_OBJ(new_byte);
 
       textlock++;
-      Object res = nlua_call_ref(cb.on_bytes, "bytes", args, false, NULL);
+      Object res = nlua_call_ref(cb.on_bytes, "bytes", args, true, NULL);
       textlock--;
 
       if (res.type == kObjectTypeBoolean && res.data.boolean == true) {
@@ -360,23 +358,24 @@ void buf_updates_changedtick(buf_T *buf)
     BufUpdateCallbacks cb = kv_A(buf->update_callbacks, i);
     bool keep = true;
     if (cb.on_changedtick != LUA_NOREF) {
-      MAXSIZE_TEMP_ARRAY(args, 2);
+      FIXED_TEMP_ARRAY(args, 2);
 
       // the first argument is always the buffer handle
-      ADD_C(args, BUFFER_OBJ(buf->handle));
+      args.items[0] = BUFFER_OBJ(buf->handle);
 
       // next argument is b:changedtick
-      ADD_C(args, INTEGER_OBJ(buf_get_changedtick(buf)));
+      args.items[1] = INTEGER_OBJ(buf_get_changedtick(buf));
 
       textlock++;
       Object res = nlua_call_ref(cb.on_changedtick, "changedtick",
-                                 args, false, NULL);
+                                 args, true, NULL);
       textlock--;
 
       if (res.type == kObjectTypeBoolean && res.data.boolean == true) {
         buffer_update_callbacks_free(cb);
         keep = false;
       }
+      api_free_object(res);
     }
     if (keep) {
       kv_A(buf->update_callbacks, j++) = kv_A(buf->update_callbacks, i);

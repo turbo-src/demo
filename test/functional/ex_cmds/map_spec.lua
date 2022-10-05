@@ -86,7 +86,7 @@ n  asdf1         qwert
   end)
 end)
 
-describe('Screen', function()
+describe(':*map cursor and redrawing', function()
   local screen
   before_each(function()
     clear()
@@ -149,18 +149,6 @@ describe('Screen', function()
     ]])
   end)
 
-  it('cursor position does not move after empty-string :cmap <expr> #19046', function()
-    command([[cnoremap <expr> <F2> '']])
-    feed(':<F2>')
-    screen:expect([[
-                          |
-      ~                   |
-      ~                   |
-      ~                   |
-      :^                   |
-    ]])
-  end)
-
   it('cursor is restored after :map <expr> which redraws statusline vim-patch:8.1.2336', function()
     exec([[
       call setline(1, ['one', 'two', 'three'])
@@ -169,12 +157,12 @@ describe('Screen', function()
       hi! link StatusLine ErrorMsg
       noremap <expr> <C-B> Func()
       func Func()
-          let g:on = !get(g:, 'on', 0)
-          redraws
-          return ''
+	  let g:on = !get(g:, 'on', 0)
+	  redraws
+	  return ''
       endfunc
       func Status()
-          return get(g:, 'on', 0) ? '[on]' : ''
+	  return get(g:, 'on', 0) ? '[on]' : ''
       endfunc
       set stl=%{Status()}
     ]])

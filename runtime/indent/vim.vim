@@ -1,7 +1,7 @@
 " Vim indent file
 " Language:	Vim script
 " Maintainer:	Bram Moolenaar <Bram@vim.org>
-" Last Change:	2022 Jun 24
+" Last Change:	2022 Mar 01
 
 " Only load this indent file when no other was loaded.
 if exists("b:did_indent")
@@ -33,19 +33,9 @@ function GetVimIndent()
   endtry
 endfunc
 
-" Legacy script line continuation and Vim9 script operators that must mean an
-" expression that continues from the previous line.
-let s:lineContPat = '^\s*\(\\\|"\\ \|->\)'
+let s:lineContPat = '^\s*\(\\\|"\\ \)'
 
 function GetVimIndentIntern()
-  " If the current line has line continuation and the previous one too, use
-  " the same indent.  This does not skip empty lines.
-  let cur_text = getline(v:lnum)
-  let cur_has_linecont = cur_text =~ s:lineContPat
-  if cur_has_linecont && v:lnum > 1 && getline(v:lnum - 1) =~ s:lineContPat
-    return indent(v:lnum - 1)
-  endif
-
   " Find a non-blank line above the current line.
   let lnum = prevnonblank(v:lnum - 1)
 
@@ -54,7 +44,8 @@ function GetVimIndentIntern()
 
   " If the current line doesn't start with '\' or '"\ ' and below a line that
   " starts with '\' or '"\ ', use the indent of the line above it.
-  if !cur_has_linecont
+  let cur_text = getline(v:lnum)
+  if cur_text !~ s:lineContPat
     while lnum > 0 && getline(lnum) =~ s:lineContPat
       let lnum = lnum - 1
     endwhile
@@ -135,15 +126,15 @@ function GetVimIndentIntern()
     endif
   endif
 
-  " For a line starting with "}" find the matching "{".  Align with that line,
-  " it is either the matching block start or dictionary start.
+  " For a line starting with "}" find the matching "{".  If it is at the start
+  " of the line align with it, probably end of a block.
   " Use the mapped "%" from matchit to find the match, otherwise we may match
   " a { inside a comment or string.
   if cur_text =~ '^\s*}'
     if maparg('%') != ''
       exe v:lnum
       silent! normal %
-      if line('.') < v:lnum
+      if line('.') < v:lnum && getline('.') =~ '^\s*{'
 	let ind = indent('.')
       endif
     else
@@ -151,33 +142,19 @@ function GetVimIndentIntern()
     endif
   endif
 
-  " Look back for a line to align with
-  while lnum > 1
-    " Below a line starting with "}" find the matching "{".
-    if prev_text =~ '^\s*}'
-      if maparg('%') != ''
-	exe lnum
-	silent! normal %
-	if line('.') < lnum
-	  let lnum = line('.')
-	  let ind = indent(lnum)
-	  let prev_text = getline(lnum)
-	else
-	  break
-	endif
-      else
-	" todo: use searchpair() to find a match
-	break
+  " Below a line starting with "}" find the matching "{".  If it is at the
+  " end of the line we must be below the end of a dictionary.
+  if prev_text =~ '^\s*}'
+    if maparg('%') != ''
+      exe lnum
+      silent! normal %
+      if line('.') == lnum || getline('.') !~ '^\s*{'
+	let ind = ind - shiftwidth()
       endif
-    elseif prev_text =~ s:lineContPat
-      " looks like a continuation like, go back one line
-      let lnum = lnum - 1
-      let ind = indent(lnum)
-      let prev_text = getline(lnum)
     else
-      break
+      " todo: use searchpair() to find a match
     endif
-  endwhile
+  endif
 
   " Below a line starting with "]" we must be below the end of a list.
   " Include a "}" and "},} in case a dictionary ends too.

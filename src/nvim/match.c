@@ -7,19 +7,13 @@
 
 #include "nvim/buffer_defs.h"
 #include "nvim/charset.h"
-#include "nvim/drawscreen.h"
-#include "nvim/eval.h"
-#include "nvim/eval/funcs.h"
-#include "nvim/ex_docmd.h"
 #include "nvim/fold.h"
-#include "nvim/highlight.h"
 #include "nvim/highlight_group.h"
 #include "nvim/match.h"
 #include "nvim/memline.h"
-#include "nvim/profile.h"
 #include "nvim/regexp.h"
 #include "nvim/runtime.h"
-#include "nvim/vim.h"
+#include "nvim/screen.h"
 
 #ifdef INCLUDE_GENERATED_DECLARATIONS
 # include "match.c.generated.h"
@@ -47,7 +41,7 @@ static int match_add(win_T *wp, const char *const grp, const char *const pat, in
   matchitem_T *m;
   int hlg_id;
   regprog_T *regprog = NULL;
-  int rtype = UPD_SOME_VALID;
+  int rtype = SOME_VALID;
 
   if (*grp == NUL || (pat != NULL && *pat == NUL)) {
     return -1;
@@ -92,7 +86,7 @@ static int match_add(win_T *wp, const char *const grp, const char *const pat, in
   m = xcalloc(1, sizeof(matchitem_T));
   m->id = id;
   m->priority = prio;
-  m->pattern = pat == NULL ? NULL: xstrdup(pat);
+  m->pattern = pat == NULL ? NULL: (char_u *)xstrdup(pat);
   m->hlg_id = hlg_id;
   m->match.regprog = regprog;
   m->match.rmm_ic = false;
@@ -122,7 +116,7 @@ static int match_add(win_T *wp, const char *const grp, const char *const pat, in
                 (int)tv_list_idx_of_item(pos_list, li));
           goto fail;
         }
-        lnum = (linenr_T)tv_get_number_chk(TV_LIST_ITEM_TV(subli), &error);
+        lnum = tv_get_number_chk(TV_LIST_ITEM_TV(subli), &error);
         if (error) {
           goto fail;
         }
@@ -156,7 +150,7 @@ static int match_add(win_T *wp, const char *const grp, const char *const pat, in
         if (TV_LIST_ITEM_TV(li)->vval.v_number <= 0) {
           continue;
         }
-        m->pos.pos[i].lnum = (linenr_T)TV_LIST_ITEM_TV(li)->vval.v_number;
+        m->pos.pos[i].lnum = TV_LIST_ITEM_TV(li)->vval.v_number;
         m->pos.pos[i].col = 0;
         m->pos.pos[i].len = 0;
       } else {
@@ -193,7 +187,7 @@ static int match_add(win_T *wp, const char *const grp, const char *const pat, in
       }
       m->pos.toplnum = toplnum;
       m->pos.botlnum = botlnum;
-      rtype = UPD_VALID;
+      rtype = VALID;
     }
   }
 
@@ -227,7 +221,7 @@ static int match_delete(win_T *wp, int id, bool perr)
 {
   matchitem_T *cur = wp->w_match_head;
   matchitem_T *prev = cur;
-  int rtype = UPD_SOME_VALID;
+  int rtype = SOME_VALID;
 
   if (id < 1) {
     if (perr) {
@@ -268,7 +262,7 @@ static int match_delete(win_T *wp, int id, bool perr)
       wp->w_buffer->b_mod_bot = cur->pos.botlnum;
       wp->w_buffer->b_mod_xlines = 0;
     }
-    rtype = UPD_VALID;
+    rtype = VALID;
   }
   xfree(cur);
   redraw_later(wp, rtype);
@@ -287,7 +281,7 @@ void clear_matches(win_T *wp)
     xfree(wp->w_match_head);
     wp->w_match_head = m;
   }
-  redraw_later(wp, UPD_SOME_VALID);
+  redraw_later(wp, SOME_VALID);
 }
 
 /// Get match from ID 'id' in window 'wp'.
@@ -404,7 +398,7 @@ static void next_search_hl(win_T *win, match_T *search_hl, match_T *shl, linenr_
   linenr_T l;
   colnr_T matchcol;
   long nmatched = 0;
-  const int called_emsg_before = called_emsg;
+  int save_called_emsg = called_emsg;
 
   // for :{range}s/pat only highlight inside the range
   if (lnum < search_first_line || lnum > search_last_line) {
@@ -427,6 +421,7 @@ static void next_search_hl(win_T *win, match_T *search_hl, match_T *shl, linenr_
 
   // Repeat searching for a match until one is found that includes "mincol"
   // or none is found in this line.
+  called_emsg = false;
   for (;;) {
     // Stop searching after passing the time limit.
     if (profile_passed_limit(shl->tm)) {
@@ -446,7 +441,7 @@ static void next_search_hl(win_T *win, match_T *search_hl, match_T *shl, linenr_
       char_u *ml;
 
       matchcol = shl->rm.startpos[0].col;
-      ml = (char_u *)ml_get_buf(shl->buf, lnum, false) + matchcol;
+      ml = ml_get_buf(shl->buf, lnum, false) + matchcol;
       if (*ml == NUL) {
         matchcol++;
         shl->lnum = 0;
@@ -473,7 +468,7 @@ static void next_search_hl(win_T *win, match_T *search_hl, match_T *shl, linenr_
       if (regprog_is_copy) {
         cur->match.regprog = cur->hl.rm.regprog;
       }
-      if (called_emsg > called_emsg_before || got_int || timed_out) {
+      if (called_emsg || got_int || timed_out) {
         // Error while handling regexp: stop using this regexp.
         if (shl == search_hl) {
           // don't free regprog in the match list, it's a copy
@@ -499,6 +494,9 @@ static void next_search_hl(win_T *win, match_T *search_hl, match_T *shl, linenr_
       shl->lnum += shl->rm.startpos[0].lnum;
       break;                            // useful match found
     }
+
+    // Restore called_emsg for assert_fails().
+    called_emsg = save_called_emsg;
   }
 }
 
@@ -613,7 +611,7 @@ bool prepare_search_hl_line(win_T *wp, linenr_T lnum, colnr_T mincol, char_u **l
 
     // Need to get the line again, a multi-line regexp may have made it
     // invalid.
-    *line = (char_u *)ml_get_buf(wp->w_buffer, lnum, false);
+    *line = ml_get_buf(wp->w_buffer, lnum, false);
 
     if (shl->lnum != 0 && shl->lnum <= lnum) {
       if (shl->lnum == lnum) {
@@ -697,7 +695,7 @@ int update_search_hl(win_T *wp, linenr_T lnum, colnr_T col, char_u **line, match
         }
         // Highlight the match were the cursor is using the CurSearch
         // group.
-        if (shl == search_hl && shl->has_cursor && (HL_ATTR(HLF_LC) || win_hl_attr(wp, HLF_LC))) {
+        if (shl == search_hl && shl->has_cursor && (HL_ATTR(HLF_LC) || wp->w_hl_ids[HLF_LC])) {
           shl->attr_cur = win_hl_attr(wp, HLF_LC) ? win_hl_attr(wp, HLF_LC) : HL_ATTR(HLF_LC);
         } else {
           shl->attr_cur = shl->attr;
@@ -721,7 +719,7 @@ int update_search_hl(win_T *wp, linenr_T lnum, colnr_T col, char_u **line, match
 
         // Need to get the line again, a multi-line regexp
         // may have made it invalid.
-        *line = (char_u *)ml_get_buf(wp->w_buffer, lnum, false);
+        *line = ml_get_buf(wp->w_buffer, lnum, false);
 
         if (shl->lnum == lnum) {
           shl->startcol = shl->rm.startpos[0].col;
@@ -859,7 +857,7 @@ static int matchadd_dict_arg(typval_T *tv, const char **conceal_char, win_T **wi
 }
 
 /// "clearmatches()" function
-void f_clearmatches(typval_T *argvars, typval_T *rettv, EvalFuncData fptr)
+void f_clearmatches(typval_T *argvars, typval_T *rettv, FunPtr fptr)
 {
   win_T *win = get_optional_window(argvars, 0);
 
@@ -869,17 +867,17 @@ void f_clearmatches(typval_T *argvars, typval_T *rettv, EvalFuncData fptr)
 }
 
 /// "getmatches()" function
-void f_getmatches(typval_T *argvars, typval_T *rettv, EvalFuncData fptr)
+void f_getmatches(typval_T *argvars, typval_T *rettv, FunPtr fptr)
 {
   matchitem_T *cur;
   int i;
   win_T *win = get_optional_window(argvars, 0);
 
-  tv_list_alloc_ret(rettv, kListLenMayKnow);
   if (win == NULL) {
     return;
   }
 
+  tv_list_alloc_ret(rettv, kListLenMayKnow);
   cur = win->w_match_head;
   while (cur != NULL) {
     dict_T *dict = tv_dict_alloc();
@@ -924,7 +922,7 @@ void f_getmatches(typval_T *argvars, typval_T *rettv, EvalFuncData fptr)
 }
 
 /// "setmatches()" function
-void f_setmatches(typval_T *argvars, typval_T *rettv, EvalFuncData fptr)
+void f_setmatches(typval_T *argvars, typval_T *rettv, FunPtr fptr)
 {
   dict_T *d;
   list_T *s = NULL;
@@ -1027,7 +1025,7 @@ void f_setmatches(typval_T *argvars, typval_T *rettv, EvalFuncData fptr)
 }
 
 /// "matchadd()" function
-void f_matchadd(typval_T *argvars, typval_T *rettv, EvalFuncData fptr)
+void f_matchadd(typval_T *argvars, typval_T *rettv, FunPtr fptr)
 {
   char grpbuf[NUMBUFLEN];
   char patbuf[NUMBUFLEN];
@@ -1069,7 +1067,7 @@ void f_matchadd(typval_T *argvars, typval_T *rettv, EvalFuncData fptr)
 }
 
 /// "matchaddpo()" function
-void f_matchaddpos(typval_T *argvars, typval_T *rettv, EvalFuncData fptr)
+void f_matchaddpos(typval_T *argvars, typval_T *rettv, FunPtr fptr)
 {
   rettv->vval.v_number = -1;
 
@@ -1120,7 +1118,7 @@ void f_matchaddpos(typval_T *argvars, typval_T *rettv, EvalFuncData fptr)
 }
 
 /// "matcharg()" function
-void f_matcharg(typval_T *argvars, typval_T *rettv, EvalFuncData fptr)
+void f_matcharg(typval_T *argvars, typval_T *rettv, FunPtr fptr)
 {
   const int id = (int)tv_get_number(&argvars[0]);
 
@@ -1143,7 +1141,7 @@ void f_matcharg(typval_T *argvars, typval_T *rettv, EvalFuncData fptr)
 }
 
 /// "matchdelete()" function
-void f_matchdelete(typval_T *argvars, typval_T *rettv, EvalFuncData fptr)
+void f_matchdelete(typval_T *argvars, typval_T *rettv, FunPtr fptr)
 {
   win_T *win = get_optional_window(argvars, 1);
   if (win == NULL) {
@@ -1159,9 +1157,9 @@ void f_matchdelete(typval_T *argvars, typval_T *rettv, EvalFuncData fptr)
 /// skipping commands to find the next command.
 void ex_match(exarg_T *eap)
 {
-  char *p;
-  char *g = NULL;
-  char *end;
+  char_u *p;
+  char_u *g = NULL;
+  char_u *end;
   int c;
   int id;
 
@@ -1178,16 +1176,16 @@ void ex_match(exarg_T *eap)
   }
 
   if (ends_excmd(*eap->arg)) {
-    end = eap->arg;
+    end = (char_u *)eap->arg;
   } else if ((STRNICMP(eap->arg, "none", 4) == 0
               && (ascii_iswhite(eap->arg[4]) || ends_excmd(eap->arg[4])))) {
-    end = eap->arg + 4;
+    end = (char_u *)eap->arg + 4;
   } else {
-    p = skiptowhite(eap->arg);
+    p = skiptowhite((char_u *)eap->arg);
     if (!eap->skip) {
-      g = xstrnsave(eap->arg, (size_t)(p - eap->arg));
+      g = vim_strnsave((char_u *)eap->arg, (size_t)(p - (char_u *)eap->arg));
     }
-    p = skipwhite(p);
+    p = (char_u *)skipwhite((char *)p);
     if (*p == NUL) {
       // There must be two arguments.
       xfree(g);
@@ -1196,9 +1194,9 @@ void ex_match(exarg_T *eap)
     }
     end = skip_regexp(p + 1, *p, true, NULL);
     if (!eap->skip) {
-      if (*end != NUL && !ends_excmd(*skipwhite(end + 1))) {
+      if (*end != NUL && !ends_excmd(*skipwhite((char *)end + 1))) {
         xfree(g);
-        eap->errmsg = ex_errmsg(e_trailing_arg, (const char *)end);
+        eap->errmsg = e_trailing;
         return;
       }
       if (*end != *p) {
@@ -1207,13 +1205,13 @@ void ex_match(exarg_T *eap)
         return;
       }
 
-      c = (uint8_t)(*end);
+      c = *end;
       *end = NUL;
       match_add(curwin, (const char *)g, (const char *)p + 1, 10, id,
                 NULL, NULL);
       xfree(g);
-      *end = (char)c;
+      *end = (char_u)c;
     }
   }
-  eap->nextcmd = find_nextcmd(end);
+  eap->nextcmd = (char *)find_nextcmd(end);
 }

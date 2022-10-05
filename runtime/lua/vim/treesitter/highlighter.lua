@@ -12,17 +12,104 @@ TSHighlighterQuery.__index = TSHighlighterQuery
 
 local ns = a.nvim_create_namespace('treesitter/highlighter')
 
+local _default_highlights = {}
+local _link_default_highlight_once = function(from, to)
+  if not _default_highlights[from] then
+    _default_highlights[from] = true
+    vim.cmd(string.format('highlight default link %s %s', from, to))
+  end
+
+  return from
+end
+
+-- If @definition.special does not exist use @definition instead
+local subcapture_fallback = {
+  __index = function(self, capture)
+    local rtn
+    local shortened = capture
+    while not rtn and shortened do
+      shortened = shortened:match('(.*)%.')
+      rtn = shortened and rawget(self, shortened)
+    end
+    rawset(self, capture, rtn or '__notfound')
+    return rtn
+  end,
+}
+
+TSHighlighter.hl_map = setmetatable({
+  ['error'] = 'Error',
+  ['text.underline'] = 'Underlined',
+  ['todo'] = 'Todo',
+  ['debug'] = 'Debug',
+
+  -- Miscs
+  ['comment'] = 'Comment',
+  ['punctuation.delimiter'] = 'Delimiter',
+  ['punctuation.bracket'] = 'Delimiter',
+  ['punctuation.special'] = 'Delimiter',
+
+  -- Constants
+  ['constant'] = 'Constant',
+  ['constant.builtin'] = 'Special',
+  ['constant.macro'] = 'Define',
+  ['define'] = 'Define',
+  ['macro'] = 'Macro',
+  ['string'] = 'String',
+  ['string.regex'] = 'String',
+  ['string.escape'] = 'SpecialChar',
+  ['character'] = 'Character',
+  ['character.special'] = 'SpecialChar',
+  ['number'] = 'Number',
+  ['boolean'] = 'Boolean',
+  ['float'] = 'Float',
+
+  -- Functions
+  ['function'] = 'Function',
+  ['function.special'] = 'Function',
+  ['function.builtin'] = 'Special',
+  ['function.macro'] = 'Macro',
+  ['parameter'] = 'Identifier',
+  ['method'] = 'Function',
+  ['field'] = 'Identifier',
+  ['property'] = 'Identifier',
+  ['constructor'] = 'Special',
+
+  -- Keywords
+  ['conditional'] = 'Conditional',
+  ['repeat'] = 'Repeat',
+  ['label'] = 'Label',
+  ['operator'] = 'Operator',
+  ['keyword'] = 'Keyword',
+  ['exception'] = 'Exception',
+
+  ['type'] = 'Type',
+  ['type.builtin'] = 'Type',
+  ['type.qualifier'] = 'Type',
+  ['type.definition'] = 'Typedef',
+  ['storageclass'] = 'StorageClass',
+  ['structure'] = 'Structure',
+  ['include'] = 'Include',
+  ['preproc'] = 'PreProc',
+}, subcapture_fallback)
+
+---@private
+local function is_highlight_name(capture_name)
+  local firstc = string.sub(capture_name, 1, 1)
+  return firstc ~= string.lower(firstc)
+end
+
 ---@private
 function TSHighlighterQuery.new(lang, query_string)
   local self = setmetatable({}, { __index = TSHighlighterQuery })
 
   self.hl_cache = setmetatable({}, {
     __index = function(table, capture)
-      local name = self._query.captures[capture]
-      local id = 0
-      if not vim.startswith(name, '_') then
-        id = a.nvim_get_hl_id_by_name('@' .. name .. '.' .. lang)
+      local hl, is_vim_highlight = self:_get_hl_from_capture(capture)
+      if not is_vim_highlight then
+        hl = _link_default_highlight_once(lang .. hl, hl)
       end
+
+      local id = a.nvim_get_hl_id_by_name(hl)
 
       rawset(table, capture, id)
       return id
@@ -41,6 +128,20 @@ end
 ---@private
 function TSHighlighterQuery:query()
   return self._query
+end
+
+---@private
+--- Get the hl from capture.
+--- Returns a tuple { highlight_name: string, is_builtin: bool }
+function TSHighlighterQuery:_get_hl_from_capture(capture)
+  local name = self._query.captures[capture]
+
+  if is_highlight_name(name) then
+    -- From "Normal.left" only keep "Normal"
+    return vim.split(name, '.', true)[1], true
+  else
+    return TSHighlighter.hl_map[name] or 0, false
+  end
 end
 
 --- Creates a new highlighter using @param tree
@@ -86,7 +187,7 @@ function TSHighlighter.new(tree, opts)
     end
   end
 
-  vim.bo[self.bufnr].syntax = ''
+  a.nvim_buf_set_option(self.bufnr, 'syntax', '')
 
   TSHighlighter.active[self.bufnr] = self
 
@@ -95,12 +196,8 @@ function TSHighlighter.new(tree, opts)
   -- syntax FileType autocmds. Later on we should integrate with the
   -- `:syntax` and `set syntax=...` machinery properly.
   if vim.g.syntax_on ~= 1 then
-    vim.cmd.runtime({ 'syntax/synload.vim', bang = true })
+    vim.api.nvim_command('runtime! syntax/synload.vim')
   end
-
-  a.nvim_buf_call(self.bufnr, function()
-    vim.opt_local.spelloptions:append('noplainbuffer')
-  end)
 
   self.tree:parse()
 
@@ -160,7 +257,7 @@ function TSHighlighter:get_query(lang)
 end
 
 ---@private
-local function on_line_impl(self, buf, line, spell)
+local function on_line_impl(self, buf, line)
   self.tree:for_each_tree(function(tstree, tree)
     if not tstree then
       return
@@ -182,9 +279,8 @@ local function on_line_impl(self, buf, line, spell)
       return
     end
 
-    if state.iter == nil or state.next_row < line then
-      state.iter =
-        highlighter_query:query():iter_captures(root_node, self.bufnr, line, root_end_row + 1)
+    if state.iter == nil then
+      state.iter = highlighter_query:query():iter_captures(root_node, self.bufnr, line, root_end_row + 1)
     end
 
     while line >= state.next_row do
@@ -197,9 +293,7 @@ local function on_line_impl(self, buf, line, spell)
       local start_row, start_col, end_row, end_col = node:range()
       local hl = highlighter_query.hl_cache[capture]
 
-      local is_spell = highlighter_query:query().captures[capture] == 'spell'
-
-      if hl and end_row >= line and (not spell or is_spell) then
+      if hl and end_row >= line then
         a.nvim_buf_set_extmark(buf, ns, start_row, start_col, {
           end_line = end_row,
           end_col = end_col,
@@ -207,7 +301,6 @@ local function on_line_impl(self, buf, line, spell)
           ephemeral = true,
           priority = tonumber(metadata.priority) or 100, -- Low but leaves room below
           conceal = metadata.conceal,
-          spell = is_spell,
         })
       end
       if start_row > line then
@@ -224,21 +317,7 @@ function TSHighlighter._on_line(_, _win, buf, line, _)
     return
   end
 
-  on_line_impl(self, buf, line, false)
-end
-
----@private
-function TSHighlighter._on_spell_nav(_, _, buf, srow, _, erow, _)
-  local self = TSHighlighter.active[buf]
-  if not self then
-    return
-  end
-
-  self:reset_highlight_state()
-
-  for row = srow, erow do
-    on_line_impl(self, buf, row, true)
-  end
+  on_line_impl(self, buf, line)
 end
 
 ---@private
@@ -265,7 +344,6 @@ a.nvim_set_decoration_provider(ns, {
   on_buf = TSHighlighter._on_buf,
   on_win = TSHighlighter._on_win,
   on_line = TSHighlighter._on_line,
-  _on_spell_nav = TSHighlighter._on_spell_nav,
 })
 
 return TSHighlighter

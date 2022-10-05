@@ -7,6 +7,7 @@
 [Twitter](https://twitter.com/Neovim)
 
 [![GitHub CI](https://github.com/neovim/neovim/workflows/CI/badge.svg)](https://github.com/neovim/neovim/actions?query=workflow%3ACI+branch%3Amaster+event%3Apush)
+[![Codecov coverage](https://img.shields.io/codecov/c/github/neovim/neovim.svg)](https://codecov.io/gh/neovim/neovim)
 [![Coverity Scan analysis](https://scan.coverity.com/projects/2227/badge.svg)](https://scan.coverity.com/projects/2227)
 [![Clang analysis](https://neovim.io/doc/reports/clang/badge.svg)](https://neovim.io/doc/reports/clang)
 [![PVS-Studio analysis](https://neovim.io/doc/reports/pvs/badge.svg)](https://neovim.io/doc/reports/pvs/PVS-studio.html.d)
@@ -62,7 +63,7 @@ After installing the dependencies, run the following command.
 
 To install to a non-default location:
 
-    make CMAKE_BUILD_TYPE=RelWithDebInfo CMAKE_INSTALL_PREFIX=/full/path/
+    make CMAKE_INSTALL_PREFIX=/full/path/
     make install
 
 CMake hints for inspecting the build:
@@ -80,10 +81,8 @@ Project layout
 --------------
 
     ├─ ci/              build automation
-    ├─ cmake/           CMake utils
-    ├─ cmake.config/    CMake defines
-    ├─ cmake.deps/      subproject to fetch and build dependencies (optional)
-    ├─ runtime/         plugins and docs
+    ├─ cmake/           build scripts
+    ├─ runtime/         user plugins/docs
     ├─ src/nvim/        application source code (see src/nvim/README.md)
     │  ├─ api/          API subsystem
     │  ├─ eval/         VimL subsystem
@@ -94,6 +93,7 @@ Project layout
     │  ├─ msgpack_rpc/  RPC subsystem
     │  ├─ os/           low-level platform code
     │  └─ tui/          built-in UI
+    ├─ third-party/     CMake subproject to build dependencies
     └─ test/            tests (see test/README.md)
 
 License

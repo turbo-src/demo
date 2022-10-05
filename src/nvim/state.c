@@ -5,17 +5,17 @@
 
 #include "nvim/ascii.h"
 #include "nvim/autocmd.h"
-#include "nvim/drawscreen.h"
+#include "nvim/edit.h"
 #include "nvim/eval.h"
 #include "nvim/ex_docmd.h"
 #include "nvim/getchar.h"
-#include "nvim/insexpand.h"
 #include "nvim/lib/kvec.h"
 #include "nvim/log.h"
 #include "nvim/main.h"
 #include "nvim/option.h"
 #include "nvim/option_defs.h"
 #include "nvim/os/input.h"
+#include "nvim/screen.h"
 #include "nvim/state.h"
 #include "nvim/ui.h"
 #include "nvim/vim.h"
@@ -81,8 +81,8 @@ getkey:
       may_sync_undo();
     }
 
-#if MIN_LOG_LEVEL <= LOGLVL_DBG
-    log_key(LOGLVL_DBG, key);
+#if MIN_LOG_LEVEL <= DEBUG_LOG_LEVEL
+    log_key(DEBUG_LOG_LEVEL, key);
 #endif
 
     int execute_result = s->execute(s, key);
@@ -137,7 +137,7 @@ bool virtual_active(void)
          || ((cur_ve_flags & VE_INSERT) && (State & MODE_INSERT));
 }
 
-/// MODE_VISUAL, MODE_SELECT and MODE_OP_PENDING State are never set, they are
+/// MODE_VISUAL, MODE_SELECTMODE and MODE_OP_PENDING State are never set, they are
 /// equal to MODE_NORMAL State with a condition.  This function returns the real
 /// State.
 int get_real_state(void)
@@ -211,15 +211,12 @@ void get_mode(char *buf)
       buf[i++] = 'o';
       // to be able to detect force-linewise/blockwise/charwise operations
       buf[i++] = (char)motion_force;
-    } else if (curbuf->terminal) {
-      buf[i++] = 't';
-      if (restart_edit == 'I') {
-        buf[i++] = 'T';
-      }
     } else if (restart_edit == 'I' || restart_edit == 'R'
                || restart_edit == 'V') {
       buf[i++] = 'i';
       buf[i++] = (char)restart_edit;
+    } else if (curbuf->terminal) {
+      buf[i++] = 't';
     }
   }
 
@@ -237,7 +234,7 @@ void may_trigger_modechanged(void)
   char pattern_buf[2 * MODE_MAX_LENGTH];
 
   get_mode(curr_mode);
-  if (strcmp(curr_mode, last_mode) == 0) {
+  if (STRCMP(curr_mode, last_mode) == 0) {
     return;
   }
 

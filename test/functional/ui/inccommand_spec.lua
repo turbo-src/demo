@@ -17,7 +17,7 @@ local source = helpers.source
 local poke_eventloop = helpers.poke_eventloop
 local nvim = helpers.nvim
 local sleep = helpers.sleep
-local testprg = helpers.testprg
+local nvim_dir = helpers.nvim_dir
 local assert_alive = helpers.assert_alive
 
 local default_text = [[
@@ -66,6 +66,7 @@ local function common_setup(screen, inccommand, text)
     command("syntax on")
     command("set nohlsearch")
     command("hi Substitute guifg=red guibg=yellow")
+    command("set display-=msgsep")
     screen:attach()
     screen:set_default_attr_ids({
       [1]  = {foreground = Screen.colors.Fuchsia},
@@ -141,11 +142,11 @@ describe(":substitute, 'inccommand' preserves", function()
     feed_command("ls")
 
     screen:expect([[
-      BAC                           |
       {15:~                             }|
       {15:~                             }|
       {15:~                             }|
-      {11:                              }|
+      {15:~                             }|
+      {15:~                             }|
       :ls                           |
         1 %a + "[No Name]"          |
                 line 1              |
@@ -251,6 +252,42 @@ describe(":substitute, 'inccommand' preserves", function()
       poke_eventloop()
 
       eq(expected_tick, eval("b:changedtick"))
+    end)
+  end
+
+  for _, case in pairs{"", "split", "nosplit"} do
+    it("visual selection for non-previewable command (inccommand="..case..") #5888", function()
+      local screen = Screen.new(30,10)
+      common_setup(screen, case, default_text)
+      feed('1G2V')
+
+      feed(':s')
+      screen:expect([[
+        {vis:Inc substitution on}           |
+        t{vis:wo lines}                     |
+                                      |
+        {15:~                             }|
+        {15:~                             }|
+        {15:~                             }|
+        {15:~                             }|
+        {15:~                             }|
+        {15:~                             }|
+        :'<,'>s^                       |
+      ]])
+
+      feed('o')
+      screen:expect([[
+        {vis:Inc substitution on}           |
+        t{vis:wo lines}                     |
+                                      |
+        {15:~                             }|
+        {15:~                             }|
+        {15:~                             }|
+        {15:~                             }|
+        {15:~                             }|
+        {15:~                             }|
+        :'<,'>so^                      |
+      ]])
     end)
   end
 
@@ -1306,108 +1343,6 @@ describe(":substitute, inccommand=split", function()
     ]])
   end)
 
-  it([[preview changes correctly with c_CTRL-R_= and c_CTRL-\_e]], function()
-    feed('gg')
-    feed(":1,2s/t/X")
-    screen:expect([[
-      Inc subs{12:X}itution on           |
-      {12:X}wo lines                     |
-      Inc substitution on           |
-      two lines                     |
-                                    |
-      {11:[No Name] [+]                 }|
-      |1| Inc subs{12:X}itution on       |
-      |2| {12:X}wo lines                 |
-      {15:~                             }|
-      {15:~                             }|
-      {15:~                             }|
-      {15:~                             }|
-      {15:~                             }|
-      {10:[Preview]                     }|
-      :1,2s/t/X^                     |
-    ]])
-
-    feed([[<C-R>='Y']])
-    -- preview should be unchanged during c_CTRL-R_= editing
-    screen:expect([[
-      Inc subs{12:X}itution on           |
-      {12:X}wo lines                     |
-      Inc substitution on           |
-      two lines                     |
-                                    |
-      {11:[No Name] [+]                 }|
-      |1| Inc subs{12:X}itution on       |
-      |2| {12:X}wo lines                 |
-      {15:~                             }|
-      {15:~                             }|
-      {15:~                             }|
-      {15:~                             }|
-      {15:~                             }|
-      {10:[Preview]                     }|
-      ={1:'Y'}^                          |
-    ]])
-
-    feed('<CR>')
-    -- preview should be changed by the result of the expression
-    screen:expect([[
-      Inc subs{12:XY}itution on          |
-      {12:XY}wo lines                    |
-      Inc substitution on           |
-      two lines                     |
-                                    |
-      {11:[No Name] [+]                 }|
-      |1| Inc subs{12:XY}itution on      |
-      |2| {12:XY}wo lines                |
-      {15:~                             }|
-      {15:~                             }|
-      {15:~                             }|
-      {15:~                             }|
-      {15:~                             }|
-      {10:[Preview]                     }|
-      :1,2s/t/XY^                    |
-    ]])
-
-    feed([[<C-\>e'echo']])
-    -- preview should be unchanged during c_CTRL-\_e editing
-    screen:expect([[
-      Inc subs{12:XY}itution on          |
-      {12:XY}wo lines                    |
-      Inc substitution on           |
-      two lines                     |
-                                    |
-      {11:[No Name] [+]                 }|
-      |1| Inc subs{12:XY}itution on      |
-      |2| {12:XY}wo lines                |
-      {15:~                             }|
-      {15:~                             }|
-      {15:~                             }|
-      {15:~                             }|
-      {15:~                             }|
-      {10:[Preview]                     }|
-      ={1:'echo'}^                       |
-    ]])
-
-    feed('<CR>')
-    -- preview should be cleared if command is changed to a non-previewable one
-    screen:expect([[
-      Inc substitution on           |
-      two lines                     |
-      Inc substitution on           |
-      two lines                     |
-                                    |
-      {15:~                             }|
-      {15:~                             }|
-      {15:~                             }|
-      {15:~                             }|
-      {15:~                             }|
-      {15:~                             }|
-      {15:~                             }|
-      {15:~                             }|
-      {15:~                             }|
-      :echo^                         |
-    ]])
-  end)
-
 end)
 
 describe("inccommand=nosplit", function()
@@ -1468,14 +1403,14 @@ describe("inccommand=nosplit", function()
     -- non-modifier prefix
     feed(':silent tabedit %s/tw/to')
     screen:expect([[
-      Inc substitution on |
       two lines           |
       Inc substitution on |
       two lines           |
                           |
       {15:~                   }|
       {15:~                   }|
-      {11:                    }|
+      {15:~                   }|
+      {15:~                   }|
       :silent tabedit %s/t|
       w/to^                |
     ]])
@@ -1777,11 +1712,11 @@ describe("'inccommand' and :cnoremap", function()
       feed_command("cnoremap <expr> x execute('bwipeout!')[-1].'x'")
 
       feed(":%s/tw/tox<enter>")
-      screen:expect{any=[[{14:^E565:]]}
+      screen:expect{any=[[{14:^E523:]]}
       feed('<c-c>')
 
       -- error thrown b/c of the mapping
-      neq(nil, eval('v:errmsg'):find('^E565:'))
+      neq(nil, eval('v:errmsg'):find('^E523:'))
       expect([[
       Inc substitution on
       toxo lines
@@ -2050,16 +1985,6 @@ describe("'inccommand' split windows", function()
     end
   end)
 
-  it("don't open if there's not enough room", function()
-    refresh()
-    screen:try_resize(40, 3)
-    feed("gg:%s/tw")
-    screen:expect([[
-      Inc substitution on                     |
-      {12:tw}o lines                               |
-      :%s/tw^                                  |
-    ]])
-  end)
 end)
 
 describe("'inccommand' with 'gdefault'", function()
@@ -2655,7 +2580,6 @@ describe(":substitute", function()
 
     feed("\\rѫ ab   \\rXXXX")
     screen:expect([[
-      7 8 9                         |
       K L M                         |
       {12:JLKR £}                        |
       {12:ѫ ab   }                       |
@@ -2667,7 +2591,8 @@ describe(":substitute", function()
       {12:ѫ ab   }                       |
       {11:[No Name] [+]                 }|
       | 7| {12:JLKR £}                   |
-      {11:                              }|
+      | 8|{12: ѫ ab   }                  |
+      {10:[Preview]                     }|
       :%s/[a-z]/JLKR £\rѫ ab   \rXXX|
       X^                             |
     ]])
@@ -2874,7 +2799,7 @@ it(':substitute with inccommand during :terminal activity', function()
     clear()
 
     command("set cmdwinheight=3")
-    feed(([[:terminal "%s" REP 5000 xxx<cr>]]):format(testprg('shell-test')))
+    feed([[:terminal "]]..nvim_dir..[[/shell-test" REP 5000 xxx<cr>]])
     command('file term')
     feed('G')  -- Follow :terminal output.
     command('new')
@@ -2916,62 +2841,6 @@ it(':substitute with inccommand, timer-induced :redraw #9777', function()
   ]])
 end)
 
-it(':substitute with inccommand, allows :redraw before first separator is typed #18857', function()
-  local screen = Screen.new(30,6)
-  clear()
-  common_setup(screen, 'split', 'foo bar baz\nbar baz fox\nbar foo baz')
-  command('hi! link NormalFloat CursorLine')
-  local float_buf = meths.create_buf(false, true)
-  meths.open_win(float_buf, false, {
-    relative = 'editor', height = 1, width = 5, row = 3, col = 0, focusable = false,
-  })
-  feed(':%s')
-  screen:expect([[
-    foo bar baz                   |
-    bar baz fox                   |
-    bar foo baz                   |
-    {16:     }{15:                         }|
-    {15:~                             }|
-    :%s^                           |
-  ]])
-  meths.buf_set_lines(float_buf, 0, -1, true, {'foo'})
-  command('redraw')
-  screen:expect([[
-    foo bar baz                   |
-    bar baz fox                   |
-    bar foo baz                   |
-    {16:foo  }{15:                         }|
-    {15:~                             }|
-    :%s^                           |
-  ]])
-end)
-
-it(':substitute with inccommand, does not crash if range contains invalid marks', function()
-  local screen = Screen.new(30, 6)
-  clear()
-  common_setup(screen, 'split', 'test')
-  feed([[:'a,'bs]])
-  screen:expect([[
-    test                          |
-    {15:~                             }|
-    {15:~                             }|
-    {15:~                             }|
-    {15:~                             }|
-    :'a,'bs^                       |
-  ]])
-  -- v:errmsg shouldn't be set either before the first separator is typed
-  eq('', eval('v:errmsg'))
-  feed('/')
-  screen:expect([[
-    test                          |
-    {15:~                             }|
-    {15:~                             }|
-    {15:~                             }|
-    {15:~                             }|
-    :'a,'bs/^                      |
-  ]])
-end)
-
 it(":substitute doesn't crash with inccommand, if undo is empty #12932", function()
   local screen = Screen.new(10,5)
   clear()
@@ -3000,23 +2869,10 @@ it('long :%s/ with inccommand does not collapse cmdline', function()
   feed(':%s/AAAAAAA', 'A', 'A', 'A', 'A', 'A', 'A', 'A', 'A', 'A', 'A', 'A',
     'A', 'A', 'A', 'A', 'A', 'A', 'A', 'A', 'A')
   screen:expect([[
-                |
-    {11:            }|
+    {15:~           }|
+    {15:~           }|
     :%s/AAAAAAAA|
     AAAAAAAAAAAA|
     AAAAAAA^     |
   ]])
-end)
-
-it("with 'inccommand' typing :filter doesn't segfault or leak memory #19057", function()
-  clear()
-  common_setup(nil, 'nosplit')
-  feed(':filter s')
-  assert_alive()
-  feed(' ')
-  assert_alive()
-  feed('h')
-  assert_alive()
-  feed('i')
-  assert_alive()
 end)

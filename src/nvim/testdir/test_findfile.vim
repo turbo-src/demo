@@ -193,14 +193,12 @@ func Test_find_cmd()
   set path=.,./**/*
   call CreateFiles()
   cd Xdir1
-
   " Test for :find
   find foo
   call assert_equal('foo', expand('%:.'))
   2find foo
   call assert_equal('Xdir2/foo', expand('%:.'))
   call assert_fails('3find foo', 'E347:')
-
   " Test for :sfind
   enew
   sfind barfoo
@@ -209,7 +207,6 @@ func Test_find_cmd()
   close
   call assert_fails('sfind baz', 'E345:')
   call assert_equal(2, winnr('$'))
-
   " Test for :tabfind
   enew
   tabfind foobar
@@ -218,8 +215,7 @@ func Test_find_cmd()
   tabclose
   call assert_fails('tabfind baz', 'E345:')
   call assert_equal(1, tabpagenr('$'))
-
-  call chdir(save_dir)
+  " call chdir(save_dir)
   exe 'cd ' . save_dir
   call CleanFiles()
   let &path = save_path

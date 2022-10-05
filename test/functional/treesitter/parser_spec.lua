@@ -5,11 +5,13 @@ local eq = helpers.eq
 local insert = helpers.insert
 local exec_lua = helpers.exec_lua
 local feed = helpers.feed
+local pending_c_parser = helpers.pending_c_parser
 
 before_each(clear)
 
 describe('treesitter parser API', function()
   clear()
+  if pending_c_parser(pending) then return end
 
   it('parses buffer', function()
     if helpers.pending_win32(pending) then return end
@@ -167,23 +169,23 @@ void ui_refresh(void)
 
   it("supports caching queries", function()
     local long_query = query:rep(100)
-    local function q(n)
-      return exec_lua ([[
-        local query, n = ...
-        local before = vim.loop.hrtime()
-        for i=1,n,1 do
-          cquery = vim.treesitter.parse_query("c", ...)
-        end
-        local after = vim.loop.hrtime()
-        return after - before
-      ]], long_query, n)
-    end
+    local first_run = exec_lua ([[
+      local before = vim.loop.hrtime()
+      cquery = vim.treesitter.parse_query("c", ...)
+      local after = vim.loop.hrtime()
+      return after - before
+    ]], long_query)
 
-    local firstrun = q(1)
-    local manyruns = q(100)
+    local subsequent_runs = exec_lua ([[
+      local before = vim.loop.hrtime()
+      for i=1,100,1 do
+        cquery = vim.treesitter.parse_query("c", ...)
+      end
+      local after = vim.loop.hrtime()
+      return after - before
+    ]], long_query)
 
-    -- First run should be at least 4x slower.
-    assert(400 * manyruns < firstrun, ('firstrun: %d ms, manyruns: %d ms'):format(firstrun / 1000, manyruns / 1000))
+    assert.True(1000 * subsequent_runs < first_run)
   end)
 
   it('support query and iter by capture', function()
@@ -247,6 +249,7 @@ void ui_refresh(void)
   end)
 
   it('supports getting text of multiline node', function()
+    if pending_c_parser(pending) then return end
     insert(test_text)
     local res = exec_lua([[
       local parser = vim.treesitter.get_parser(0, "c")

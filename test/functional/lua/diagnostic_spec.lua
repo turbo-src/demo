@@ -128,37 +128,6 @@ describe('vim.diagnostic', function()
     eq('Diagnostic #1', result[1].message)
   end)
 
-  it('removes diagnostics from the cache when a buffer is removed', function()
-    eq(2, exec_lua [[
-      vim.api.nvim_win_set_buf(0, diagnostic_bufnr)
-      local other_bufnr = vim.fn.bufadd('test | test')
-      local lines = vim.api.nvim_buf_get_lines(diagnostic_bufnr, 0, -1, true)
-      vim.api.nvim_buf_set_lines(other_bufnr, 0, 1, false, lines)
-      vim.cmd('bunload! ' .. other_bufnr)
-
-      vim.diagnostic.set(diagnostic_ns, diagnostic_bufnr, {
-        make_error('Diagnostic #1', 1, 1, 1, 1),
-        make_error('Diagnostic #2', 2, 1, 2, 1),
-      })
-      vim.diagnostic.set(diagnostic_ns, other_bufnr, {
-        make_error('Diagnostic #3', 3, 1, 3, 1),
-      })
-      vim.api.nvim_set_current_buf(other_bufnr)
-      vim.opt_local.buflisted = true
-      vim.cmd('bwipeout!')
-      return #vim.diagnostic.get()
-    ]])
-    eq(2, exec_lua [[
-      vim.api.nvim_set_current_buf(diagnostic_bufnr)
-      vim.opt_local.buflisted = false
-      return #vim.diagnostic.get()
-    ]])
-    eq(0, exec_lua [[
-      vim.cmd('bwipeout!')
-      return #vim.diagnostic.get()
-    ]])
-  end)
-
   it('resolves buffer number 0 to the current buffer', function()
     eq(2, exec_lua [[
       vim.api.nvim_set_current_buf(diagnostic_bufnr)
@@ -760,19 +729,6 @@ describe('vim.diagnostic', function()
         return vim.diagnostic.get_next_pos { namespace = diagnostic_ns }
       ]])
     end)
-
-    it('works with diagnostics before the start of the line', function()
-    eq({4, 0}, exec_lua [[
-    vim.diagnostic.set(diagnostic_ns, diagnostic_bufnr, {
-        make_error('Diagnostic #1', 3, 9001, 3, 9001),
-        make_error('Diagnostic #2', 4, -1, 4, -1),
-    })
-    vim.api.nvim_win_set_buf(0, diagnostic_bufnr)
-    vim.api.nvim_win_set_cursor(0, {1, 1})
-    vim.diagnostic.goto_next { float = false }
-    return vim.diagnostic.get_next_pos { namespace = diagnostic_ns }
-    ]])
-end)
   end)
 
   describe('get_prev_pos()', function()
@@ -1983,26 +1939,19 @@ end)
     end)
 
     it('triggers the autocommand when diagnostics are set', function()
-      eq({true, true}, exec_lua [[
+      eq(true, exec_lua [[
         -- Set a different buffer as current to test that <abuf> is being set properly in
         -- DiagnosticChanged callbacks
         local tmp = vim.api.nvim_create_buf(false, true)
         vim.api.nvim_set_current_buf(tmp)
 
-        local triggered = {}
-        vim.api.nvim_create_autocmd('DiagnosticChanged', {
-          callback = function(args)
-            triggered = {args.buf, #args.data.diagnostics}
-          end,
-        })
+        vim.g.diagnostic_autocmd_triggered = 0
+        vim.cmd('autocmd DiagnosticChanged * let g:diagnostic_autocmd_triggered = +expand("<abuf>")')
         vim.api.nvim_buf_set_name(diagnostic_bufnr, "test | test")
         vim.diagnostic.set(diagnostic_ns, diagnostic_bufnr, {
           make_error('Diagnostic', 0, 0, 0, 0)
         })
-        return {
-          triggered[1] == diagnostic_bufnr,
-          triggered[2] == 1,
-        }
+        return vim.g.diagnostic_autocmd_triggered == diagnostic_bufnr
       ]])
       end)
 

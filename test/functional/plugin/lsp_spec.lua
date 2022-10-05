@@ -45,10 +45,10 @@ local function clear_notrace()
 end
 
 
-local function fake_lsp_server_setup(test_name, timeout_ms, options, settings)
+local function fake_lsp_server_setup(test_name, timeout_ms, options)
   exec_lua([=[
     lsp = require('vim.lsp')
-    local test_name, fixture_filename, logfile, timeout, options, settings = ...
+    local test_name, fixture_filename, logfile, timeout, options = ...
     TEST_RPC_CLIENT_ID = lsp.start_client {
       cmd_env = {
         NVIM_LOG_FILE = logfile;
@@ -79,18 +79,17 @@ local function fake_lsp_server_setup(test_name, timeout_ms, options, settings)
         allow_incremental_sync = options.allow_incremental_sync or false;
         debounce_text_changes = options.debounce_text_changes or 0;
       };
-      settings = settings;
       on_exit = function(...)
         vim.rpcnotify(1, "exit", ...)
       end;
     }
-  ]=], test_name, fake_lsp_code, fake_lsp_logfile, timeout_ms or 1e3, options or {}, settings or {})
+  ]=], test_name, fake_lsp_code, fake_lsp_logfile, timeout_ms or 1e3, options or {})
 end
 
 local function test_rpc_server(config)
   if config.test_name then
     clear_notrace()
-    fake_lsp_server_setup(config.test_name, config.timeout_ms or 1e3, config.options, config.settings)
+    fake_lsp_server_setup(config.test_name, config.timeout_ms or 1e3, config.options)
   end
   local client = setmetatable({}, {
     __index = function(_, name)
@@ -137,7 +136,7 @@ local function test_rpc_server(config)
   end
   stop()
   if config.test_name then
-    exec_lua("vim.api.nvim_exec_autocmds('VimLeavePre', { modeline = false })")
+    exec_lua("lsp._vim_exit_handler()")
   end
 end
 
@@ -172,7 +171,7 @@ describe('LSP', function()
   end)
 
   after_each(function()
-    exec_lua("vim.api.nvim_exec_autocmds('VimLeavePre', { modeline = false })")
+    exec_lua("lsp._vim_exit_handler()")
    -- exec_lua("lsp.stop_all_clients(true)")
   end)
 
@@ -249,7 +248,7 @@ describe('LSP', function()
     after_each(function()
       stop()
       exec_lua("lsp.stop_client(lsp.get_active_clients(), true)")
-      exec_lua("vim.api.nvim_exec_autocmds('VimLeavePre', { modeline = false })")
+      exec_lua("lsp._vim_exit_handler()")
     end)
 
     it('should run correctly', function()
@@ -266,8 +265,8 @@ describe('LSP', function()
         end;
         -- If the program timed out, then code will be nil.
         on_exit = function(code, signal)
-          eq(0, code, "exit code")
-          eq(0, signal, "exit signal")
+          eq(0, code, "exit code", fake_lsp_logfile)
+          eq(0, signal, "exit signal", fake_lsp_logfile)
         end;
         -- Note that NIL must be used here.
         -- on_handler(err, method, result, client_id)
@@ -288,8 +287,8 @@ describe('LSP', function()
           client.stop()
         end;
         on_exit = function(code, signal)
-          eq(101, code, "exit code")  -- See fake-lsp-server.lua
-          eq(0, signal, "exit signal")
+          eq(101, code, "exit code", fake_lsp_logfile)  -- See fake-lsp-server.lua
+          eq(0, signal, "exit signal", fake_lsp_logfile)
           assert_log(pesc([[assert_eq failed: left == "\"shutdown\"", right == "\"test\""]]),
             fake_lsp_logfile)
         end;
@@ -297,22 +296,6 @@ describe('LSP', function()
           eq(table.remove(expected_handlers), {...}, "expected handler")
         end;
       }
-    end)
-
-    it('should send didChangeConfiguration after initialize if there are settings', function()
-      test_rpc_server({
-        test_name = 'basic_init_did_change_configuration',
-        on_init = function(client, _)
-          client.stop()
-        end,
-        on_exit = function(code, signal)
-          eq(0, code, 'exit code', fake_lsp_logfile)
-          eq(0, signal, 'exit signal', fake_lsp_logfile)
-        end,
-        settings = {
-          dummy = 1,
-        },
-      })
     end)
 
     it('should succeed with manual shutdown', function()
@@ -335,8 +318,8 @@ describe('LSP', function()
           client.stop()
         end;
         on_exit = function(code, signal)
-          eq(0, code, "exit code")
-          eq(0, signal, "exit signal")
+          eq(0, code, "exit code", fake_lsp_logfile)
+          eq(0, signal, "exit signal", fake_lsp_logfile)
         end;
         on_handler = function(...)
           eq(table.remove(expected_handlers), {...}, "expected handler")
@@ -367,8 +350,8 @@ describe('LSP', function()
           client.notify('finish')
         end;
         on_exit = function(code, signal)
-          eq(0, code, "exit code")
-          eq(0, signal, "exit signal")
+          eq(0, code, "exit code", fake_lsp_logfile)
+          eq(0, signal, "exit signal", fake_lsp_logfile)
         end;
         on_handler = function(err, result, ctx)
           eq(table.remove(expected_handlers), {err, result, ctx}, "expected handler")
@@ -418,43 +401,6 @@ describe('LSP', function()
       }
     end)
 
-    it('should detach buffer on bufwipe', function()
-      clear()
-      local result = exec_lua([[
-        local server = function(dispatchers)
-          local closing = false
-          return {
-            request = function(method, params, callback)
-              if method == 'initialize' then
-                callback(nil, { capabilities = {} })
-              end
-            end,
-            notify = function(...)
-            end,
-            is_closing = function() return closing end,
-            terminate = function() closing = true end
-          }
-        end
-        local bufnr = vim.api.nvim_create_buf(false, true)
-        vim.api.nvim_set_current_buf(bufnr)
-        local client_id = vim.lsp.start({ name = 'detach-dummy', cmd = server })
-        assert(client_id, "lsp.start must return client_id")
-        local client = vim.lsp.get_client_by_id(client_id)
-        local num_attached_before = vim.tbl_count(client.attached_buffers)
-        vim.api.nvim_buf_delete(bufnr, { force = true })
-        local num_attached_after = vim.tbl_count(client.attached_buffers)
-        return {
-          bufnr = bufnr,
-          client_id = client_id,
-          num_attached_before = num_attached_before,
-          num_attached_after = num_attached_after,
-        }
-      ]])
-      eq(true, result ~= nil, "exec_lua must return result")
-      eq(1, result.num_attached_before)
-      eq(0, result.num_attached_after)
-    end)
-
     it('client should return settings via workspace/configuration handler', function()
       local expected_handlers = {
         {NIL, {}, {method="shutdown", client_id=1}};
@@ -473,8 +419,8 @@ describe('LSP', function()
           client = _client
         end;
         on_exit = function(code, signal)
-          eq(0, code, "exit code")
-          eq(0, signal, "exit signal")
+          eq(0, code, "exit code", fake_lsp_logfile)
+          eq(0, signal, "exit signal", fake_lsp_logfile)
         end;
         on_handler = function(err, result, ctx)
           eq(table.remove(expected_handlers), {err, result, ctx}, "expected handler")
@@ -533,8 +479,8 @@ describe('LSP', function()
           eq(false, client.server_capabilities().codeLensProvider)
         end;
         on_exit = function(code, signal)
-          eq(0, code, "exit code")
-          eq(0, signal, "exit signal")
+          eq(0, code, "exit code", fake_lsp_logfile)
+          eq(0, signal, "exit signal", fake_lsp_logfile)
         end;
         on_handler = function(...)
           eq(table.remove(expected_handlers), {...}, "expected handler")
@@ -542,7 +488,7 @@ describe('LSP', function()
       }
     end)
 
-    it('BufWritePost sends didSave with bool textDocumentSync.save', function()
+    it('_text_document_did_save_handler sends didSave with bool textDocumentSync.save', function()
       local expected_handlers = {
         {NIL, {}, {method="shutdown", client_id=1}};
         {NIL, {}, {method="start", client_id=1}};
@@ -554,8 +500,8 @@ describe('LSP', function()
           client = c
         end;
         on_exit = function(code, signal)
-          eq(0, code, "exit code")
-          eq(0, signal, "exit signal")
+          eq(0, code, "exit code", fake_lsp_logfile)
+          eq(0, signal, "exit signal", fake_lsp_logfile)
         end;
         on_handler = function(err, result, ctx)
           eq(table.remove(expected_handlers), {err, result, ctx}, "expected handler")
@@ -563,7 +509,7 @@ describe('LSP', function()
             exec_lua([=[
               BUFFER = vim.api.nvim_get_current_buf()
               lsp.buf_attach_client(BUFFER, TEST_RPC_CLIENT_ID)
-              vim.api.nvim_exec_autocmds('BufWritePost', { buffer = BUFFER, modeline = false })
+              lsp._text_document_did_save_handler(BUFFER)
             ]=])
           else
             client.stop()
@@ -572,47 +518,7 @@ describe('LSP', function()
       }
     end)
 
-    it('saveas sends didOpen if filename changed', function()
-      local expected_handlers = {
-        { NIL, {}, { method = 'shutdown', client_id = 1 } },
-        { NIL, {}, { method = 'start', client_id = 1 } },
-      }
-      local client
-      test_rpc_server({
-        test_name = 'text_document_save_did_open',
-        on_init = function(c)
-          client = c
-        end,
-        on_exit = function(code, signal)
-          eq(0, code, 'exit code')
-          eq(0, signal, 'exit signal')
-        end,
-        on_handler = function(err, result, ctx)
-          eq(table.remove(expected_handlers), { err, result, ctx }, 'expected handler')
-          if ctx.method == 'start' then
-            local tmpfile_old = helpers.tmpname()
-            local tmpfile_new = helpers.tmpname()
-            os.remove(tmpfile_new)
-            exec_lua(
-              [=[
-              local oldname, newname = ...
-              BUFFER = vim.api.nvim_get_current_buf()
-              vim.api.nvim_buf_set_name(BUFFER, oldname)
-              vim.api.nvim_buf_set_lines(BUFFER, 0, -1, true, {"help me"})
-              lsp.buf_attach_client(BUFFER, TEST_RPC_CLIENT_ID)
-              vim.api.nvim_buf_call(BUFFER, function() vim.cmd('saveas ' .. newname) end)
-            ]=],
-              tmpfile_old,
-              tmpfile_new
-            )
-          else
-            client.stop()
-          end
-        end,
-      })
-    end)
-
-    it('BufWritePost sends didSave including text if server capability is set', function()
+    it('_text_document_did_save_handler sends didSave including text if server capability is set', function()
       local expected_handlers = {
         {NIL, {}, {method="shutdown", client_id=1}};
         {NIL, {}, {method="start", client_id=1}};
@@ -624,8 +530,8 @@ describe('LSP', function()
           client = c
         end;
         on_exit = function(code, signal)
-          eq(0, code, "exit code")
-          eq(0, signal, "exit signal")
+          eq(0, code, "exit code", fake_lsp_logfile)
+          eq(0, signal, "exit signal", fake_lsp_logfile)
         end;
         on_handler = function(err, result, ctx)
           eq(table.remove(expected_handlers), {err, result, ctx}, "expected handler")
@@ -634,7 +540,7 @@ describe('LSP', function()
               BUFFER = vim.api.nvim_get_current_buf()
               vim.api.nvim_buf_set_lines(BUFFER, 0, -1, true, {"help me"})
               lsp.buf_attach_client(BUFFER, TEST_RPC_CLIENT_ID)
-              vim.api.nvim_exec_autocmds('BufWritePost', { buffer = BUFFER, modeline = false })
+              lsp._text_document_did_save_handler(BUFFER)
             ]=])
           else
             client.stop()
@@ -673,8 +579,8 @@ describe('LSP', function()
           eq(true, client.supports_method("unknown-method"))
         end;
         on_exit = function(code, signal)
-          eq(0, code, "exit code")
-          eq(0, signal, "exit signal")
+          eq(0, code, "exit code", fake_lsp_logfile)
+          eq(0, signal, "exit signal", fake_lsp_logfile)
         end;
         on_handler = function(...)
           eq(table.remove(expected_handlers), {...}, "expected handler")
@@ -703,8 +609,8 @@ describe('LSP', function()
           ]]
         end;
         on_exit = function(code, signal)
-          eq(0, code, "exit code")
-          eq(0, signal, "exit signal")
+          eq(0, code, "exit code", fake_lsp_logfile)
+          eq(0, signal, "exit signal", fake_lsp_logfile)
         end;
         on_handler = function(...)
           eq(table.remove(expected_handlers), {...}, "expected handler")
@@ -728,8 +634,8 @@ describe('LSP', function()
           exec_lua("vim.lsp.buf.type_definition()")
         end;
         on_exit = function(code, signal)
-          eq(0, code, "exit code")
-          eq(0, signal, "exit signal")
+          eq(0, code, "exit code", fake_lsp_logfile)
+          eq(0, signal, "exit signal", fake_lsp_logfile)
         end;
         on_handler = function(...)
           eq(table.remove(expected_handlers), {...}, "expected handler")
@@ -749,8 +655,8 @@ describe('LSP', function()
           client = _client
         end;
         on_exit = function(code, signal)
-          eq(0, code, "exit code")
-          eq(0, signal, "exit signal")
+          eq(0, code, "exit code", fake_lsp_logfile)
+          eq(0, signal, "exit signal", fake_lsp_logfile)
           eq(0, #expected_handlers, "did not call expected handler")
         end;
         on_handler = function(err, _, ctx)
@@ -773,8 +679,8 @@ describe('LSP', function()
           client = _client
         end;
         on_exit = function(code, signal)
-          eq(0, code, "exit code")
-          eq(0, signal, "exit signal")
+          eq(0, code, "exit code", fake_lsp_logfile)
+          eq(0, signal, "exit signal", fake_lsp_logfile)
           eq(0, #expected_handlers, "did not call expected handler")
         end;
         on_handler = function(err, _, ctx)
@@ -803,8 +709,8 @@ describe('LSP', function()
           client.notify("release")
         end;
         on_exit = function(code, signal)
-          eq(0, code, "exit code")
-          eq(0, signal, "exit signal")
+          eq(0, code, "exit code", fake_lsp_logfile)
+          eq(0, signal, "exit signal", fake_lsp_logfile)
           eq(0, #expected_handlers, "did not call expected handler")
         end;
         on_handler = function(err, _, ctx)
@@ -836,8 +742,8 @@ describe('LSP', function()
           client.notify("release")
         end;
         on_exit = function(code, signal)
-          eq(0, code, "exit code")
-          eq(0, signal, "exit signal")
+          eq(0, code, "exit code", fake_lsp_logfile)
+          eq(0, signal, "exit signal", fake_lsp_logfile)
           eq(0, #expected_handlers, "did not call expected handler")
         end;
         on_handler = function(err, _, ctx)
@@ -870,8 +776,8 @@ describe('LSP', function()
           client.notify("release")
         end;
         on_exit = function(code, signal)
-          eq(0, code, "exit code")
-          eq(0, signal, "exit signal")
+          eq(0, code, "exit code", fake_lsp_logfile)
+          eq(0, signal, "exit signal", fake_lsp_logfile)
           eq(0, #expected_handlers, "did not call expected handler")
         end;
         on_handler = function(err, _, ctx)
@@ -905,8 +811,8 @@ describe('LSP', function()
           client.notify("release")
         end;
         on_exit = function(code, signal)
-          eq(0, code, "exit code")
-          eq(0, signal, "exit signal")
+          eq(0, code, "exit code", fake_lsp_logfile)
+          eq(0, signal, "exit signal", fake_lsp_logfile)
           eq(0, #expected_handlers, "did not call expected handler")
           eq(3, eval('g:requests'))
         end;
@@ -951,8 +857,8 @@ describe('LSP', function()
           client.notify('finish')
         end;
         on_exit = function(code, signal)
-          eq(0, code, "exit code")
-          eq(0, signal, "exit signal")
+          eq(0, code, "exit code", fake_lsp_logfile)
+          eq(0, signal, "exit signal", fake_lsp_logfile)
         end;
         on_handler = function(err, result, ctx)
           eq(table.remove(expected_handlers), {err, result, ctx}, "expected handler")
@@ -994,8 +900,8 @@ describe('LSP', function()
           ]]
         end;
         on_exit = function(code, signal)
-          eq(0, code, "exit code")
-          eq(0, signal, "exit signal")
+          eq(0, code, "exit code", fake_lsp_logfile)
+          eq(0, signal, "exit signal", fake_lsp_logfile)
         end;
         on_handler = function(err, result, ctx)
           if ctx.method == 'start' then
@@ -1037,8 +943,8 @@ describe('LSP', function()
           ]]
         end;
         on_exit = function(code, signal)
-          eq(0, code, "exit code")
-          eq(0, signal, "exit signal")
+          eq(0, code, "exit code", fake_lsp_logfile)
+          eq(0, signal, "exit signal", fake_lsp_logfile)
         end;
         on_handler = function(err, result, ctx)
           if ctx.method == 'start' then
@@ -1080,8 +986,8 @@ describe('LSP', function()
           ]]
         end;
         on_exit = function(code, signal)
-          eq(0, code, "exit code")
-          eq(0, signal, "exit signal")
+          eq(0, code, "exit code", fake_lsp_logfile)
+          eq(0, signal, "exit signal", fake_lsp_logfile)
         end;
         on_handler = function(err, result, ctx)
           if ctx.method == 'start' then
@@ -1129,8 +1035,8 @@ describe('LSP', function()
           ]]
         end;
         on_exit = function(code, signal)
-          eq(0, code, "exit code")
-          eq(0, signal, "exit signal")
+          eq(0, code, "exit code", fake_lsp_logfile)
+          eq(0, signal, "exit signal", fake_lsp_logfile)
         end;
         on_handler = function(err, result, ctx)
           if ctx.method == 'start' then
@@ -1180,8 +1086,8 @@ describe('LSP', function()
           ]]
         end;
         on_exit = function(code, signal)
-          eq(0, code, "exit code")
-          eq(0, signal, "exit signal")
+          eq(0, code, "exit code", fake_lsp_logfile)
+          eq(0, signal, "exit signal", fake_lsp_logfile)
         end;
         on_handler = function(err, result, ctx)
           if ctx.method == 'start' then
@@ -1231,8 +1137,8 @@ describe('LSP', function()
           ]]
         end;
         on_exit = function(code, signal)
-          eq(0, code, "exit code")
-          eq(0, signal, "exit signal")
+          eq(0, code, "exit code", fake_lsp_logfile)
+          eq(0, signal, "exit signal", fake_lsp_logfile)
         end;
         on_handler = function(err, result, ctx)
           if ctx.method == 'start' then
@@ -1280,8 +1186,8 @@ describe('LSP', function()
           ]]
         end;
         on_exit = function(code, signal)
-          eq(0, code, "exit code")
-          eq(0, signal, "exit signal")
+          eq(0, code, "exit code", fake_lsp_logfile)
+          eq(0, signal, "exit signal", fake_lsp_logfile)
         end;
         on_handler = function(err, result, ctx)
           if ctx.method == 'start' then
@@ -1324,8 +1230,8 @@ describe('LSP', function()
           ]]
         end;
         on_exit = function(code, signal)
-          eq(0, code, "exit code")
-          eq(0, signal, "exit signal")
+          eq(0, code, "exit code", fake_lsp_logfile)
+          eq(0, signal, "exit signal", fake_lsp_logfile)
         end;
         on_handler = function(err, result, ctx)
           if ctx.method == 'start' then
@@ -1375,8 +1281,8 @@ describe('LSP', function()
           ]]
         end;
         on_exit = function(code, signal)
-          eq(0, code, "exit code")
-          eq(0, signal, "exit signal")
+          eq(0, code, "exit code", fake_lsp_logfile)
+          eq(0, signal, "exit signal", fake_lsp_logfile)
         end;
         on_handler = function(err, result,ctx)
           if ctx.method == 'start' then
@@ -1417,8 +1323,8 @@ describe('LSP', function()
           client.stop(true)
         end;
         on_exit = function(code, signal)
-          eq(0, code, "exit code")
-          eq(0, signal, "exit signal")
+          eq(0, code, "exit code", fake_lsp_logfile)
+          eq(0, signal, "exit signal", fake_lsp_logfile)
         end;
         on_handler = function(err, result, ctx)
           eq(table.remove(expected_handlers), {err, result, ctx}, "expected handler")
@@ -1456,8 +1362,8 @@ describe('LSP', function()
           ]]
         end;
         on_exit = function(code, signal)
-          eq(0, code, "exit code")
-          eq(0, signal, "exit signal")
+          eq(0, code, "exit code", fake_lsp_logfile)
+          eq(0, signal, "exit signal", fake_lsp_logfile)
         end;
         on_handler = function(err, result, ctx)
           eq(table.remove(expected_handlers), {err, result, ctx}, "expected handler")
@@ -1802,8 +1708,8 @@ describe('LSP', function()
         end;
         -- If the program timed out, then code will be nil.
         on_exit = function(code, signal)
-          eq(0, code, "exit code")
-          eq(0, signal, "exit signal")
+          eq(0, code, "exit code", fake_lsp_logfile)
+          eq(0, signal, "exit signal", fake_lsp_logfile)
         end;
         -- Note that NIL must be used here.
         -- on_handler(err, method, result, client_id)
@@ -2805,8 +2711,8 @@ describe('LSP', function()
           ]=])
         end;
         on_exit = function(code, signal)
-          eq(0, code, "exit code")
-          eq(0, signal, "exit signal")
+          eq(0, code, "exit code", fake_lsp_logfile)
+          eq(0, signal, "exit signal", fake_lsp_logfile)
         end;
         on_handler = function(err, result, ctx)
           -- Don't compare & assert params, they're not relevant for the testcase
@@ -2845,8 +2751,8 @@ describe('LSP', function()
         on_setup = function()
         end,
         on_exit = function(code, signal)
-          eq(0, code, "exit code")
-          eq(0, signal, "exit signal")
+          eq(0, code, "exit code", fake_lsp_logfile)
+          eq(0, signal, "exit signal", fake_lsp_logfile)
         end,
         on_handler = function(err, result, ctx)
           eq(table.remove(expected_handlers), {err, result, ctx})
@@ -2870,45 +2776,6 @@ describe('LSP', function()
         end
       }
     end)
-    it('Calls workspace/executeCommand if no client side command', function()
-      local client
-      local expected_handlers = {
-        { NIL, {}, { method = 'shutdown', client_id = 1 } },
-        {
-          NIL,
-          { command = 'dummy1', title = 'Command 1' },
-          { bufnr = 1, method = 'workspace/executeCommand', client_id = 1 },
-        },
-        { NIL, {}, { method = 'start', client_id = 1 } },
-      }
-      test_rpc_server({
-        test_name = 'code_action_server_side_command',
-        on_init = function(client_)
-          client = client_
-        end,
-        on_setup = function() end,
-        on_exit = function(code, signal)
-          eq(0, code, 'exit code', fake_lsp_logfile)
-          eq(0, signal, 'exit signal', fake_lsp_logfile)
-        end,
-        on_handler = function(err, result, ctx)
-          ctx.params = nil -- don't compare in assert
-          eq(table.remove(expected_handlers), { err, result, ctx })
-          if ctx.method == 'start' then
-            exec_lua([[
-              local bufnr = vim.api.nvim_get_current_buf()
-              vim.lsp.buf_attach_client(bufnr, TEST_RPC_CLIENT_ID)
-              vim.fn.inputlist = function()
-                return 1
-              end
-              vim.lsp.buf.code_action()
-            ]])
-          elseif ctx.method == 'shutdown' then
-            client.stop()
-          end
-        end,
-      })
-    end)
     it('Filters and automatically applies action if requested', function()
       local client
       local expected_handlers = {
@@ -2923,8 +2790,8 @@ describe('LSP', function()
         on_setup = function()
         end,
         on_exit = function(code, signal)
-          eq(0, code, "exit code")
-          eq(0, signal, "exit signal")
+          eq(0, code, "exit code", fake_lsp_logfile)
+          eq(0, signal, "exit signal", fake_lsp_logfile)
         end,
         on_handler = function(err, result, ctx)
           eq(table.remove(expected_handlers), {err, result, ctx})
@@ -2996,8 +2863,8 @@ describe('LSP', function()
         on_setup = function()
         end,
         on_exit = function(code, signal)
-          eq(0, code, "exit code")
-          eq(0, signal, "exit signal")
+          eq(0, code, "exit code", fake_lsp_logfile)
+          eq(0, signal, "exit signal", fake_lsp_logfile)
         end,
         on_handler = function(err, result, ctx)
           eq(table.remove(expected_handlers), {err, result, ctx})
@@ -3062,8 +2929,8 @@ describe('LSP', function()
             ]=])
         end,
         on_exit = function(code, signal)
-          eq(0, code, "exit code")
-          eq(0, signal, "exit signal")
+          eq(0, code, "exit code", fake_lsp_logfile)
+          eq(0, signal, "exit signal", fake_lsp_logfile)
         end,
         on_handler = function(err, result, ctx)
           eq(table.remove(expected_handlers), {err, result, ctx})
@@ -3216,80 +3083,6 @@ describe('LSP', function()
           end
         end,
       }
-    end)
-    it('format formats range in visual mode', function()
-      local result = exec_lua([[
-        local messages = {}
-        local server = function(dispatchers)
-          local closing = false
-          return {
-            request = function(method, params, callback)
-              table.insert(messages, {
-                method = method,
-                params = params,
-              })
-              if method == 'initialize' then
-                callback(nil, {
-                  capabilities = {
-                    documentFormattingProvider = true,
-                    documentRangeFormattingProvider = true,
-                  }
-                })
-              end
-            end,
-            notify = function(...)
-            end,
-            is_closing = function()
-              return closing
-            end,
-            terminate = function()
-              closing = true
-            end
-          }
-        end
-        local bufnr = vim.api.nvim_get_current_buf()
-        local client_id = vim.lsp.start({ name = 'dummy', cmd = server })
-        vim.api.nvim_win_set_buf(0, bufnr)
-        vim.api.nvim_buf_set_lines(bufnr, 0, -1, true, {'foo', 'bar'})
-        vim.api.nvim_win_set_cursor(0, { 1, 0 })
-        vim.cmd.normal('v')
-        vim.api.nvim_win_set_cursor(0, { 2, 3 })
-        vim.lsp.buf.format({ bufnr = bufnr, false })
-        return messages
-      ]])
-      eq("textDocument/rangeFormatting", result[2].method)
-      local expected_range = {
-        start = { line = 0, character = 0 },
-        ['end'] = { line = 1, character = 4 },
-      }
-      eq(expected_range, result[2].params.range)
-    end)
-  end)
-  describe('cmd', function()
-    it('can connect to lsp server via rpc.connect', function()
-      local result = exec_lua [[
-        local uv = vim.loop
-        local server = uv.new_tcp()
-        local init = nil
-        server:bind('127.0.0.1', 0)
-        server:listen(127, function(err)
-          assert(not err, err)
-          local socket = uv.new_tcp()
-          server:accept(socket)
-          socket:read_start(require('vim.lsp.rpc').create_read_loop(function(body)
-            init = body
-            socket:close()
-          end))
-        end)
-        local port = server:getsockname().port
-        vim.lsp.start({ name = 'dummy', cmd = vim.lsp.rpc.connect('127.0.0.1', port) })
-        vim.wait(1000, function() return init ~= nil end)
-        assert(init, "server must receive `initialize` request")
-        server:close()
-        server:shutdown()
-        return vim.json.decode(init)
-      ]]
-      eq(result.method, "initialize")
     end)
   end)
 end)

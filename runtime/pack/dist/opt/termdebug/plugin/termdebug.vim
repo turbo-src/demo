@@ -2,7 +2,7 @@
 "
 " Author: Bram Moolenaar
 " Copyright: Vim license applies, see ":help license"
-" Last Change: 2022 Jun 24
+" Last Change: 2022 May 09
 "
 " WORK IN PROGRESS - The basics works stable, more to come
 " Note: In general you need at least GDB 7.12 because this provides the
@@ -37,7 +37,7 @@
 "
 " For neovim compatibility, the vim specific calls were replaced with neovim
 " specific calls:
-"   term_start -> termopen
+"   term_start -> term_open
 "   term_sendkeys -> chansend
 "   term_getline -> getbufline
 "   job_info && term_getjob -> using linux command ps to get the tty
@@ -71,6 +71,11 @@ set cpo&vim
 command -nargs=* -complete=file -bang Termdebug call s:StartDebug(<bang>0, <f-args>)
 command -nargs=+ -complete=file -bang TermdebugCommand call s:StartDebugCommand(<bang>0, <f-args>)
 
+" Name of the gdb command, defaults to "gdb".
+if !exists('g:termdebugger')
+  let g:termdebugger = 'gdb'
+endif
+
 let s:pc_id = 12
 let s:asm_id = 13
 let s:break_id = 14  " breakpoint number is added to this
@@ -100,17 +105,8 @@ call s:Highlight(1, '', &background)
 hi default debugBreakpoint term=reverse ctermbg=red guibg=red
 hi default debugBreakpointDisabled term=reverse ctermbg=gray guibg=gray
 
-" Get the command to execute the debugger as a list, defaults to ["gdb"].
 func s:GetCommand()
-  if exists('g:termdebug_config')
-    let cmd = get(g:termdebug_config, 'command', 'gdb')
-  elseif exists('g:termdebugger')
-    let cmd = g:termdebugger
-  else
-    let cmd = 'gdb'
-  endif
-
-  return type(cmd) == v:t_list ? copy(cmd) : [cmd]
+  return type(g:termdebugger) == v:t_list ? copy(g:termdebugger) : [g:termdebugger]
 endfunc
 
 func s:StartDebug(bang, ...)
@@ -181,10 +177,12 @@ func s:StartDebug_internal(dict)
     call s:StartDebug_term(a:dict)
   endif
 
-  if s:GetDisasmWindow()
-    let curwinid = win_getid(winnr())
-    call s:GotoAsmwinOrCreateIt()
-    call win_gotoid(curwinid)
+  if exists('g:termdebug_disasm_window')
+    if g:termdebug_disasm_window
+      let curwinid = win_getid(winnr())
+      call s:GotoAsmwinOrCreateIt()
+      call win_gotoid(curwinid)
+    endif
   endif
 
   if exists('#User#TermdebugStartPost')
@@ -254,28 +252,18 @@ func s:StartDebug_term(dict)
   let proc_args = get(a:dict, 'proc_args', [])
 
   let gdb_cmd = s:GetCommand()
-
-  if exists('g:termdebug_config') && has_key(g:termdebug_config, 'command_add_args')
-    let gdb_cmd = g:termdebug_config.command_add_args(gdb_cmd, pty)
-  else
-    " Add -quiet to avoid the intro message causing a hit-enter prompt.
-    let gdb_cmd += ['-quiet']
-    " Disable pagination, it causes everything to stop at the gdb
-    let gdb_cmd += ['-iex', 'set pagination off']
-    " Interpret commands while the target is running.  This should usually only
-    " be exec-interrupt, since many commands don't work properly while the
-    " target is running (so execute during startup).
-    let gdb_cmd += ['-iex', 'set mi-async on']
-    " Open a terminal window to run the debugger.
-    let gdb_cmd += ['-tty', pty]
-    " Command executed _after_ startup is done, provides us with the necessary
-    " feedback
-    let gdb_cmd += ['-ex', 'echo startupdone\n']
-  endif
-
-  if exists('g:termdebug_config') && has_key(g:termdebug_config, 'command_filter')
-    let gdb_cmd = g:termdebug_config.command_filter(gdb_cmd)
-  endif
+  " Add -quiet to avoid the intro message causing a hit-enter prompt.
+  let gdb_cmd += ['-quiet']
+  " Disable pagination, it causes everything to stop at the gdb
+  let gdb_cmd += ['-iex', 'set pagination off']
+  " Interpret commands while the target is running.  This should usually only
+  " be exec-interrupt, since many commands don't work properly while the
+  " target is running (so execute during startup).
+  let gdb_cmd += ['-iex', 'set mi-async on']
+  " Open a terminal window to run the debugger.
+  let gdb_cmd += ['-tty', pty]
+  " Command executed _after_ startup is done, provides us with the necessary feedback
+  let gdb_cmd += ['-ex', 'echo startupdone\n']
 
   " Adding arguments requested by the user
   let gdb_cmd += gdb_args
@@ -539,7 +527,6 @@ func TermDebugSendCommand(cmd)
       endif
       sleep 10m
     endif
-    " TODO: should we prepend CTRL-U to clear the command?
     call chansend(s:gdb_job_id, a:cmd . "\r")
     if do_continue
       Continue
@@ -884,13 +871,7 @@ func s:InstallCommands()
   command Asm call s:GotoAsmwinOrCreateIt()
   command Winbar call s:InstallWinbar()
 
-  let map = 1
-  if exists('g:termdebug_config')
-    let map = get(g:termdebug_config, 'map_K', 1)
-  elseif exists('g:termdebug_map_K')
-    let map = g:termdebug_map_K
-  endif
-  if map
+  if !exists('g:termdebug_map_K') || g:termdebug_map_K
     " let s:k_map_saved = maparg('K', 'n', 0, 1)
     let s:k_map_saved = {}
     for map in nvim_get_keymap('n')
@@ -900,26 +881,6 @@ func s:InstallCommands()
       endif
     endfor
     nnoremap K :Evaluate<CR>
-  endif
-
-  if has('menu') && &mouse != ''
-    call s:InstallWinbar()
-
-    let popup = 1
-    if exists('g:termdebug_config')
-      let popup = get(g:termdebug_config, 'popup', 1)
-    elseif exists('g:termdebug_popup')
-      let popup = g:termdebug_popup
-    endif
-    if popup
-      let s:saved_mousemodel = &mousemodel
-      let &mousemodel = 'popup_setpos'
-      an 1.200 PopUp.-SEP3-	<Nop>
-      an 1.210 PopUp.Set\ breakpoint	:Break<CR>
-      an 1.220 PopUp.Clear\ breakpoint	:Clear<CR>
-      an 1.230 PopUp.Run\ until		:Until<CR>
-      an 1.240 PopUp.Evaluate		:Evaluate<CR>
-    endif
   endif
 
   let &cpo = save_cpo
@@ -964,36 +925,16 @@ func s:DeleteCommands()
       nunmap K
     else
       " call mapset(s:k_map_saved)
-      call mapset('n', 0, s:k_map_saved)
+      let mode = s:k_map_saved.mode !=# ' ' ? s:k_map_saved.mode : ''
+      call nvim_set_keymap(mode, 'K', s:k_map_saved.rhs, {
+        \ 'expr': s:k_map_saved.expr ? v:true : v:false,
+        \ 'noremap': s:k_map_saved.noremap ? v:true : v:false,
+        \ 'nowait': s:k_map_saved.nowait ? v:true : v:false,
+        \ 'script': s:k_map_saved.script ? v:true : v:false,
+        \ 'silent': s:k_map_saved.silent ? v:true : v:false,
+        \ })
     endif
     unlet s:k_map_saved
-  endif
-
-  if has('menu')
-    " Remove the WinBar entries from all windows where it was added.
-    " let curwinid = win_getid(winnr())
-    " for winid in s:winbar_winids
-    "   if win_gotoid(winid)
-    "     aunmenu WinBar.Step
-    "     aunmenu WinBar.Next
-    "     aunmenu WinBar.Finish
-    "     aunmenu WinBar.Cont
-    "     aunmenu WinBar.Stop
-    "     aunmenu WinBar.Eval
-    "   endif
-    " endfor
-    " call win_gotoid(curwinid)
-    " let s:winbar_winids = []
-
-    if exists('s:saved_mousemodel')
-      let &mousemodel = s:saved_mousemodel
-      unlet s:saved_mousemodel
-      aunmenu PopUp.-SEP3-
-      aunmenu PopUp.Set\ breakpoint
-      aunmenu PopUp.Clear\ breakpoint
-      aunmenu PopUp.Run\ until
-      aunmenu PopUp.Evaluate
-    endif
   endif
 
   call sign_unplace('TermDebug')
@@ -1339,26 +1280,6 @@ func s:GotoSourcewinOrCreateIt()
   endif
 endfunc
 
-func s:GetDisasmWindow()
-  if exists('g:termdebug_config')
-    return get(g:termdebug_config, 'disasm_window', 0)
-  endif
-  if exists('g:termdebug_disasm_window')
-    return g:termdebug_disasm_window
-  endif
-  return 0
-endfunc
-
-func s:GetDisasmWindowHeight()
-  if exists('g:termdebug_config')
-    return get(g:termdebug_config, 'disasm_window_height', 0)
-  endif
-  if exists('g:termdebug_disasm_window') && g:termdebug_disasm_window > 1
-    return g:termdebug_disasm_window
-  endif
-  return 0
-endfunc
-
 func s:GotoAsmwinOrCreateIt()
   if !win_gotoid(s:asmwin)
     if win_gotoid(s:sourcewin)
@@ -1382,8 +1303,10 @@ func s:GotoAsmwinOrCreateIt()
       exe 'file Termdebug-asm-listing'
     endif
 
-    if s:GetDisasmWindowHeight() > 0
-      exe 'resize ' .. s:GetDisasmWindowHeight()
+    if exists('g:termdebug_disasm_window')
+      if g:termdebug_disasm_window > 1
+        exe 'resize ' . g:termdebug_disasm_window
+      endif
     endif
   endif
 
@@ -1447,7 +1370,7 @@ func s:HandleCursor(msg)
         echomsg 'different fname: "' .. expand('%:p') .. '" vs "' .. fnamemodify(fname, ':p') .. '"'
         augroup Termdebug
           " Always open a file read-only instead of showing the ATTENTION
-          " prompt, since it is unlikely we want to edit the file.
+          " prompt, since we are unlikely to want to edit the file.
           " The file may be changed but not saved, warn for that.
           au SwapExists * echohl WarningMsg
                 \ | echo 'Warning: file is being edited elsewhere'

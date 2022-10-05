@@ -412,8 +412,6 @@ CmdwinLeave			Before leaving the command-line window.
 				|cmdwin-char|
 							*ColorScheme*
 ColorScheme			After loading a color scheme. |:colorscheme|
-				Not triggered if the color scheme is not
-				found.
 				The pattern is matched against the
 				colorscheme name. <afile> can be used for the
 				name of the actual file where this option was
@@ -443,8 +441,8 @@ CompleteChanged 					*CompleteChanged*
 				Non-recursive (event cannot trigger itself).
 				Cannot change the text. |textlock|
 
-				The size and position of the popup are also
-				available by calling |pum_getpos()|.
+  				The size and position of the popup are also
+ 				available by calling |pum_getpos()|.
 
 							*CompleteDonePre*
 CompleteDonePre			After Insert mode completion is done.  Either
@@ -729,14 +727,13 @@ MenuPopup			Just before showing the popup menu (under the
 				right mouse button).  Useful for adjusting the
 				menu for what is under the cursor or mouse
 				pointer.
-				The pattern is matched against one or two
-				characters representing the mode:
+				The pattern is matched against a single
+				character representing the mode:
 					n	Normal
 					v	Visual
 					o	Operator-pending
 					i	Insert
 					c	Command line
-					tl	Terminal
 							*ModeChanged*
 ModeChanged			After changing the mode. The pattern is
 				matched against `'old_mode:new_mode'`, for

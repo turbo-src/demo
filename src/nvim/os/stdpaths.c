@@ -4,7 +4,6 @@
 #include <stdbool.h>
 
 #include "nvim/ascii.h"
-#include "nvim/fileio.h"
 #include "nvim/memory.h"
 #include "nvim/os/os.h"
 #include "nvim/os/stdpaths_defs.h"
@@ -27,7 +26,7 @@ static const char *const xdg_defaults_env_vars[] = {
   [kXDGDataHome] = "LOCALAPPDATA",
   [kXDGCacheHome] = "TEMP",
   [kXDGStateHome] = "LOCALAPPDATA",
-  [kXDGRuntimeDir] = NULL,  // Decided by vim_mktempdir().
+  [kXDGRuntimeDir] = NULL,
   [kXDGConfigDirs] = NULL,
   [kXDGDataDirs] = NULL,
 };
@@ -42,7 +41,7 @@ static const char *const xdg_defaults[] = {
   [kXDGDataHome] = "~\\AppData\\Local",
   [kXDGCacheHome] = "~\\AppData\\Local\\Temp",
   [kXDGStateHome] = "~\\AppData\\Local",
-  [kXDGRuntimeDir] = NULL,  // Decided by vim_mktempdir().
+  [kXDGRuntimeDir] = NULL,
   [kXDGConfigDirs] = NULL,
   [kXDGDataDirs] = NULL,
 #else
@@ -50,7 +49,7 @@ static const char *const xdg_defaults[] = {
   [kXDGDataHome] = "~/.local/share",
   [kXDGCacheHome] = "~/.cache",
   [kXDGStateHome] = "~/.local/state",
-  [kXDGRuntimeDir] = NULL,  // Decided by vim_mktempdir().
+  [kXDGRuntimeDir] = NULL,
   [kXDGConfigDirs] = "/etc/xdg/",
   [kXDGDataDirs] = "/usr/local/share/:/usr/share/",
 #endif
@@ -84,11 +83,6 @@ char *stdpaths_get_xdg_var(const XDGVarType idx)
     ret = xstrdup(env_val);
   } else if (fallback) {
     ret = expand_env_save((char *)fallback);
-  } else if (idx == kXDGRuntimeDir) {
-    // Special-case: stdpath('run') is defined at startup.
-    ret = vim_gettempdir();
-    size_t len = strlen(ret);
-    ret = xstrndup(ret, len >= 2 ? len - 1 : 0);  // Trim trailing slash.
   }
 
   return ret;
@@ -114,10 +108,6 @@ char *get_xdg_home(const XDGVarType idx)
                                 true);
 #else
     dir = concat_fnames_realloc(dir, "nvim", true);
-#endif
-
-#ifdef BACKSLASH_IN_FILENAME
-    slash_adjust((char_u *)dir);
 #endif
   }
   return dir;

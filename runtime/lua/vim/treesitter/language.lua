@@ -6,11 +6,10 @@ local M = {}
 ---
 --- Parsers are searched in the `parser` runtime directory.
 ---
----@param lang string The language the parser should parse
----@param path string|nil Optional path the parser is located at
----@param silent boolean|nil Don't throw an error if language not found
----@param symbol_name string|nil Internal symbol name for the language to load
-function M.require_language(lang, path, silent, symbol_name)
+---@param lang The language the parser should parse
+---@param path Optional path the parser is located at
+---@param silent Don't throw an error if language not found
+function M.require_language(lang, path, silent)
   if vim._ts_has_language(lang) then
     return true
   end
@@ -22,6 +21,7 @@ function M.require_language(lang, path, silent, symbol_name)
         return false
       end
 
+      -- TODO(bfredl): help tag?
       error("no parser for '" .. lang .. "' language, see :help treesitter-parsers")
     end
     path = paths[1]
@@ -29,10 +29,10 @@ function M.require_language(lang, path, silent, symbol_name)
 
   if silent then
     return pcall(function()
-      vim._ts_add_language(path, lang, symbol_name)
+      vim._ts_add_language(path, lang)
     end)
   else
-    vim._ts_add_language(path, lang, symbol_name)
+    vim._ts_add_language(path, lang)
   end
 
   return true

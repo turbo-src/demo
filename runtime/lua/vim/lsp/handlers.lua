@@ -40,12 +40,10 @@ local function progress_handler(_, result, ctx, _)
     if val.kind == 'begin' then
       client.messages.progress[token] = {
         title = val.title,
-        cancellable = val.cancellable,
         message = val.message,
         percentage = val.percentage,
       }
     elseif val.kind == 'report' then
-      client.messages.progress[token].cancellable = val.cancellable
       client.messages.progress[token].message = val.message
       client.messages.progress[token].percentage = val.percentage
     elseif val.kind == 'end' then
@@ -61,7 +59,7 @@ local function progress_handler(_, result, ctx, _)
     client.messages.progress[token].done = true
   end
 
-  api.nvim_exec_autocmds('User', { pattern = 'LspProgressUpdate', modeline = false })
+  vim.api.nvim_command('doautocmd <nomodeline> User LspProgressUpdate')
 end
 
 --see: https://microsoft.github.io/language-server-protocol/specifications/specification-current/#progress
@@ -125,8 +123,7 @@ M['workspace/applyEdit'] = function(_, workspace_edit, ctx)
   if workspace_edit.label then
     print('Workspace edit', workspace_edit.label)
   end
-  local status, result =
-    pcall(util.apply_workspace_edit, workspace_edit.edit, client.offset_encoding)
+  local status, result = pcall(util.apply_workspace_edit, workspace_edit.edit, client.offset_encoding)
   return {
     applied = status,
     failureReason = result,
@@ -138,11 +135,7 @@ M['workspace/configuration'] = function(_, result, ctx)
   local client_id = ctx.client_id
   local client = vim.lsp.get_client_by_id(client_id)
   if not client then
-    err_message(
-      'LSP[',
-      client_id,
-      '] client has shut down after sending a workspace/configuration request'
-    )
+    err_message('LSP[', client_id, '] client has shut down after sending a workspace/configuration request')
     return
   end
   if not result.items then
@@ -189,17 +182,19 @@ M['textDocument/references'] = function(_, result, ctx, config)
   else
     local client = vim.lsp.get_client_by_id(ctx.client_id)
     config = config or {}
-    local title = 'References'
-    local items = util.locations_to_items(result, client.offset_encoding)
-
     if config.loclist then
-      vim.fn.setloclist(0, {}, ' ', { title = title, items = items, context = ctx })
+      vim.fn.setloclist(0, {}, ' ', {
+        title = 'References',
+        items = util.locations_to_items(result, client.offset_encoding),
+        context = ctx,
+      })
       api.nvim_command('lopen')
-    elseif config.on_list then
-      assert(type(config.on_list) == 'function', 'on_list is not a function')
-      config.on_list({ title = title, items = items, context = ctx })
     else
-      vim.fn.setqflist({}, ' ', { title = title, items = items, context = ctx })
+      vim.fn.setqflist({}, ' ', {
+        title = 'References',
+        items = util.locations_to_items(result, client.offset_encoding),
+        context = ctx,
+      })
       api.nvim_command('botright copen')
     end
   end
@@ -222,17 +217,19 @@ local function response_to_list(map_result, entity, title_fn)
       vim.notify('No ' .. entity .. ' found')
     else
       config = config or {}
-      local title = title_fn(ctx)
-      local items = map_result(result, ctx.bufnr)
-
       if config.loclist then
-        vim.fn.setloclist(0, {}, ' ', { title = title, items = items, context = ctx })
+        vim.fn.setloclist(0, {}, ' ', {
+          title = title_fn(ctx),
+          items = map_result(result, ctx.bufnr),
+          context = ctx,
+        })
         api.nvim_command('lopen')
-      elseif config.on_list then
-        assert(type(config.on_list) == 'function', 'on_list is not a function')
-        config.on_list({ title = title, items = items, context = ctx })
       else
-        vim.fn.setqflist({}, ' ', { title = title, items = items, context = ctx })
+        vim.fn.setqflist({}, ' ', {
+          title = title_fn(ctx),
+          items = map_result(result, ctx.bufnr),
+          context = ctx,
+        })
         api.nvim_command('botright copen')
       end
     end
@@ -240,14 +237,10 @@ local function response_to_list(map_result, entity, title_fn)
 end
 
 --see: https://microsoft.github.io/language-server-protocol/specifications/specification-current/#textDocument_documentSymbol
-M['textDocument/documentSymbol'] = response_to_list(
-  util.symbols_to_items,
-  'document symbols',
-  function(ctx)
-    local fname = vim.fn.fnamemodify(vim.uri_to_fname(ctx.params.textDocument.uri), ':.')
-    return string.format('Symbols in %s', fname)
-  end
-)
+M['textDocument/documentSymbol'] = response_to_list(util.symbols_to_items, 'document symbols', function(ctx)
+  local fname = vim.fn.fnamemodify(vim.uri_to_fname(ctx.params.textDocument.uri), ':.')
+  return string.format('Symbols in %s', fname)
+end)
 
 --see: https://microsoft.github.io/language-server-protocol/specifications/specification-current/#workspace_symbol
 M['workspace/symbol'] = response_to_list(util.symbols_to_items, 'symbols', function(ctx)
@@ -257,7 +250,6 @@ end)
 --see: https://microsoft.github.io/language-server-protocol/specifications/specification-current/#textDocument_rename
 M['textDocument/rename'] = function(_, result, ctx, _)
   if not result then
-    vim.notify("Language server couldn't provide rename result", vim.log.levels.INFO)
     return
   end
   local client = vim.lsp.get_client_by_id(ctx.client_id)
@@ -348,18 +340,13 @@ local function location_handler(_, result, ctx, config)
   -- https://microsoft.github.io/language-server-protocol/specifications/specification-current/#textDocument_definition
 
   if vim.tbl_islist(result) then
-    local title = 'LSP locations'
-    local items = util.locations_to_items(result, client.offset_encoding)
+    util.jump_to_location(result[1], client.offset_encoding, config.reuse_win)
 
-    if config.on_list then
-      assert(type(config.on_list) == 'function', 'on_list is not a function')
-      config.on_list({ title = title, items = items })
-    else
-      if #result == 1 then
-        util.jump_to_location(result[1], client.offset_encoding, config.reuse_win)
-        return
-      end
-      vim.fn.setqflist({}, ' ', { title = title, items = items })
+    if #result > 1 then
+      vim.fn.setqflist({}, ' ', {
+        title = 'LSP locations',
+        items = util.locations_to_items(result, client.offset_encoding),
+      })
       api.nvim_command('botright copen')
     end
   else
@@ -402,8 +389,7 @@ function M.signature_help(_, result, ctx, config)
     return
   end
   local client = vim.lsp.get_client_by_id(ctx.client_id)
-  local triggers =
-    vim.tbl_get(client.server_capabilities, 'signatureHelpProvider', 'triggerCharacters')
+  local triggers = vim.tbl_get(client.server_capabilities, 'signatureHelpProvider', 'triggerCharacters')
   local ft = api.nvim_buf_get_option(ctx.bufnr, 'filetype')
   local lines, hl = util.convert_signature_help_to_markdown_lines(result, ft, triggers)
   lines = util.trim_empty_lines(lines)

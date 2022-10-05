@@ -6,7 +6,6 @@
 
 #include "nvim/event/stream.h"
 #include "nvim/event/time.h"
-#include "nvim/tui/input_defs.h"
 #include "nvim/tui/tui.h"
 
 typedef enum {

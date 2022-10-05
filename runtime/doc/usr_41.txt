@@ -157,7 +157,7 @@ cannot start with a digit.  Valid variable names are:
 	FuncLength
 	LENGTH
 
-Invalid names are "foo.bar" and "6var".
+Invalid names are "foo+bar" and "6var".
    These variables are global.  To see a list of currently defined variables
 use this command: >
 
@@ -202,9 +202,9 @@ message when it doesn't, append !: >
 
 	:unlet! s:count
 
-When a script has been processed to the end, the local variables declared
-there will not be deleted.  Functions defined in the script can use them.
-Example:
+When a script finishes, the local variables used there will not be
+automatically freed.  The next time the script executes, it can still use the
+old value.  Example: >
 
 	:if !exists("s:call_count")
 	:  let s:call_count = 0
@@ -581,7 +581,7 @@ statements is equal to: >
 
 	:substitute/\a/*/g
 
-Using the functions becomes interesting when you do more work before and
+Using the functions becomes more interesting when you do more work before and
 after the substitute() call.
 
 
@@ -604,11 +604,8 @@ String manipulation:					*string-functions*
 	fnameescape()		escape a file name for use with a Vim command
 	tr()			translate characters from one set to another
 	strtrans()		translate a string to make it printable
-	keytrans()		translate internal keycodes to a form that
-				can be used by |:map|
 	tolower()		turn a string to lowercase
 	toupper()		turn a string to uppercase
-	charclass()		class of a character
 	match()			position where a pattern matches in a string
 	matchend()		position where a pattern match ends in a string
 	matchfuzzy()		fuzzy matches a string in a list of strings
@@ -622,7 +619,6 @@ String manipulation:					*string-functions*
 	strchars()		length of a string in characters
 	strwidth()		size of string when displayed
 	strdisplaywidth()	size of string when displayed, deals with tabs
-	setcellwidths()		set character cell width overrides
 	substitute()		substitute a pattern match with a string
 	submatch()		get a specific match in ":s" and substitute()
 	strpart()		get part of a string using byte index
@@ -652,7 +648,6 @@ List manipulation:					*list-functions*
 	deepcopy()		make a full copy of a List
 	filter()		remove selected items from a List
 	map()			change each List item
-	reduce()		reduce a List to a value
 	sort()			sort a List
 	reverse()		reverse the order of a List
 	uniq()			remove copies of repeated adjacent items
@@ -710,8 +705,6 @@ Floating point computation:				*float-functions*
 	sinh()			hyperbolic sine
 	cosh()			hyperbolic cosine
 	tanh()			hyperbolic tangent
-	isinf()			check for infinity
-	isnan()			check for not a number
 
 Other computation:					*bitwise-function*
 	and()			bitwise AND
@@ -719,8 +712,6 @@ Other computation:					*bitwise-function*
 	or()			bitwise OR
 	xor()			bitwise XOR
 	sha256()		SHA-256 hash
-	rand()			get a pseudo-random number
-	srand()			initialize seed used by rand()
 
 Variables:						*var-functions*
 	type()			type of a variable
@@ -746,8 +737,6 @@ Cursor and mark position:		*cursor-functions* *mark-functions*
 	cursor()		position the cursor at a line/column
 	screencol()		get screen column of the cursor
 	screenrow()		get screen row of the cursor
-	screenpos()		screen row and col of a text character
-	virtcol2col()		byte index of a text character on screen
 	getcurpos()		get position of the cursor
 	getpos()		get position of cursor, mark, etc.
 	setpos()		set position of cursor, mark, etc.
@@ -776,7 +765,6 @@ Working with text in the current buffer:		*text-functions*
 	prevnonblank()		find previous non-blank line
 	search()		find a match for a pattern
 	searchpos()		find a match for a pattern
-	searchcount()		get number of matches before/after the cursor
 	searchpair()		find the other end of a start/skip/end
 	searchpairpos()		find the other end of a start/skip/end
 	searchdecl()		search for the declaration of a name
@@ -853,13 +841,11 @@ Buffers, windows and the argument list:
 	deletebufline()		delete lines from a specified buffer
 	win_findbuf()		find windows containing a buffer
 	win_getid()		get window ID of a window
-	win_gettype()		get type of window
 	win_gotoid()		go to window with ID
 	win_id2tabwin()		get tab and window nr from window ID
 	win_id2win()		get window nr from window ID
 	win_move_separator()	move window vertical separator
 	win_move_statusline()	move window status line
-	win_splitmove()		move window to a split of another window
 	getbufinfo()		get a list with buffer information
 	gettabinfo()		get a list with tab page information
 	getwininfo()		get a list with window information
@@ -875,7 +861,6 @@ Command line:					*command-line-functions*
 	getcmdpos()		get position of the cursor in the command line
 	getcmdscreenpos()	get screen position of the cursor in the
 				command line
-	setcmdline()		set the current command line
 	setcmdpos()		set position of the cursor in the command line
 	getcmdtype()		return the current command-line type
 	getcmdwintype()		return the current command-line window type
@@ -941,7 +926,6 @@ Interactive:					*interactive-functions*
 	confirm()		let the user make a choice
 	getchar()		get a character from the user
 	getcharmod()		get modifiers for the last typed character
-	getmousepos()		get last known mouse position
 	feedkeys()		put characters in the typeahead queue
 	input()			get a line from the user
 	inputlist()		let the user pick an entry from a list
@@ -979,7 +963,7 @@ Window size and position:			*window-size-functions*
 	winsaveview()		get view of current window
 	winrestview()		restore saved view of current window
 
-Mappings and Menus:			    *mapping-functions*
+Mappings:				    *mapping-functions*
 	digraph_get()		get |digraph|
 	digraph_getlist()	get all |digraph|s
 	digraph_set()		register |digraph|
@@ -987,8 +971,6 @@ Mappings and Menus:			    *mapping-functions*
 	hasmapto()		check if a mapping exists
 	mapcheck()		check if a matching mapping exists
 	maparg()		get rhs of a mapping
-	mapset()		restore a mapping
-	menu_info()		get information about a menu item
 	wildmenumode()		check if the wildmode is active
 
 Signs:						*sign-functions*
@@ -1072,12 +1054,10 @@ Various:					*various-functions*
 
 	wordcount()		get byte/word/char count of buffer
 
-	luaeval()		evaluate |Lua| expression
+	luaeval()		evaluate Lua expression
 	py3eval()		evaluate Python expression (|+python3|)
 	pyeval()		evaluate Python expression (|+python|)
 	pyxeval()		evaluate |python_x| expression
-	rubyeval()		evaluate |Ruby| expression
-
 	debugbreak()		interrupt a program being debugged
 
 ==============================================================================
@@ -1616,7 +1596,7 @@ the same (the text may change, e.g., it may be translated).
 
 When the ":read" command causes another error, the pattern "E484:" will not
 match in it.  Thus this exception will not be caught and result in the usual
-error message and execution is aborted.
+error message.
 
 You might be tempted to do this: >
 
@@ -1656,29 +1636,27 @@ manual: |exception-handling|.
 Here is a summary of items that apply to Vim scripts.  They are also mentioned
 elsewhere, but form a nice checklist.
 
-The end-of-line character depends on the system.  For Vim scripts it is
-recommended to always use the Unix fileformat.  Lines are then separated with
-the Newline character.  This also works on any other system.  That way you can
-copy your Vim scripts from MS-Windows to Unix and they still work.  See
-|:source_crnl|.  To be sure it is set right, do this before writing the file:
- >
-	:setlocal fileformat=unix
-
-When using "dos" fileformat, lines are separated with CR-NL, two characters.
-The CR character causes various problems, better avoid this.
+The end-of-line character depends on the system.  For Unix a single <NL>
+character is used.  For Windows <CR><NL> is used.  This is important when
+using mappings that end in a <CR>.  See |:source_crnl|.
 
 
 WHITE SPACE
 
-Blank lines are allowed in a script and ignored.
+Blank lines are allowed and ignored.
 
-Leading whitespace characters (blanks and TABs) are ignored, except when using
-|:let-heredoc| without "trim".
+Leading whitespace characters (blanks and TABs) are always ignored.  The
+whitespaces between parameters (e.g. between the "set" and the "cpoptions" in
+the example below) are reduced to one blank character and plays the role of a
+separator, the whitespaces after the last (visible) character may or may not
+be ignored depending on the situation, see below.
 
-Trailing whitespace is often ignored, but not always.  One command that
-includes it is `map`.  You have to watch out for that, it can cause hard to
-understand mistakes.  A generic solution is to never use trailing white space,
-unless you really need it.
+For a ":set" command involving the "=" (equal) sign, such as in: >
+
+	:set cpoptions    =aABceFst
+
+the whitespace immediately before the "=" sign is ignored.  But there can be
+no whitespace after the "=" sign!
 
 To include a whitespace character in the value of an option, it must be
 escaped by a "\" (backslash)  as in the following example: >

@@ -18,12 +18,10 @@
 #include "nvim/change.h"
 #include "nvim/cursor.h"
 #include "nvim/decoration.h"
-#include "nvim/drawscreen.h"
 #include "nvim/ex_cmds.h"
 #include "nvim/ex_docmd.h"
 #include "nvim/extmark.h"
 #include "nvim/lua/executor.h"
-#include "nvim/mapping.h"
 #include "nvim/mark.h"
 #include "nvim/memline.h"
 #include "nvim/memory.h"
@@ -422,7 +420,7 @@ void nvim_buf_set_lines(uint64_t channel_id, Buffer buffer, Integer start, Integ
     goto end;
   }
 
-  bcount_t deleted_bytes = get_region_bytecount(curbuf, (linenr_T)start, (linenr_T)end, 0, 0);
+  bcount_t deleted_bytes = get_region_bytecount(curbuf, start, end, 0, 0);
 
   // If the size of the range is reducing (ie, new_len < old_len) we
   // need to delete some old_len. We do this at the start, by
@@ -492,14 +490,14 @@ void nvim_buf_set_lines(uint64_t channel_id, Buffer buffer, Integer start, Integ
   mark_adjust((linenr_T)start,
               (linenr_T)(end - 1),
               MAXLNUM,
-              (linenr_T)extra,
+              (long)extra,
               kExtmarkNOOP);
 
   extmark_splice(curbuf, (int)start - 1, 0, (int)(end - start), 0,
                  deleted_bytes, (int)new_len, 0, inserted_bytes,
                  kExtmarkUndo);
 
-  changed_lines((linenr_T)start, 0, (linenr_T)end, (linenr_T)extra, true);
+  changed_lines((linenr_T)start, 0, (linenr_T)end, (long)extra, true);
   fix_cursor((linenr_T)start, (linenr_T)end, (linenr_T)extra);
 
 end:
@@ -539,9 +537,9 @@ void nvim_buf_set_text(uint64_t channel_id, Buffer buffer, Integer start_row, In
                        Integer end_row, Integer end_col, ArrayOf(String) replacement, Error *err)
   FUNC_API_SINCE(7)
 {
-  MAXSIZE_TEMP_ARRAY(scratch, 1);
+  FIXED_TEMP_ARRAY(scratch, 1);
   if (replacement.size == 0) {
-    ADD_C(scratch, STRING_OBJ(STATIC_CSTR_AS_STRING("")));
+    scratch.items[0] = STRING_OBJ(STATIC_CSTR_AS_STRING(""));
     replacement = scratch;
   }
 
@@ -555,44 +553,38 @@ void nvim_buf_set_text(uint64_t channel_id, Buffer buffer, Integer start_row, In
   // check range is ordered and everything!
   // start_row, end_row within buffer len (except add text past the end?)
   start_row = normalize_index(buf, start_row, false, &oob);
-  if (oob) {
+  if (oob || start_row == buf->b_ml.ml_line_count + 1) {
     api_set_error(err, kErrorTypeValidation, "start_row out of bounds");
     return;
   }
 
   end_row = normalize_index(buf, end_row, false, &oob);
-  if (oob) {
+  if (oob || end_row == buf->b_ml.ml_line_count + 1) {
     api_set_error(err, kErrorTypeValidation, "end_row out of bounds");
     return;
   }
 
-  char *str_at_start = NULL;
-  char *str_at_end = NULL;
-
-  // Another call to ml_get_buf() may free the line, so make a copy.
-  str_at_start = xstrdup(ml_get_buf(buf, (linenr_T)start_row, false));
-  size_t len_at_start = strlen(str_at_start);
-  if (start_col < 0 || (size_t)start_col > len_at_start) {
+  char *str_at_start = (char *)ml_get_buf(buf, start_row, false);
+  if (start_col < 0 || (size_t)start_col > strlen(str_at_start)) {
     api_set_error(err, kErrorTypeValidation, "start_col out of bounds");
-    goto early_end;
+    return;
   }
 
-  // Another call to ml_get_buf() may free the line, so make a copy.
-  str_at_end = xstrdup(ml_get_buf(buf, (linenr_T)end_row, false));
+  char *str_at_end = (char *)ml_get_buf(buf, end_row, false);
   size_t len_at_end = strlen(str_at_end);
   if (end_col < 0 || (size_t)end_col > len_at_end) {
     api_set_error(err, kErrorTypeValidation, "end_col out of bounds");
-    goto early_end;
+    return;
   }
 
   if (start_row > end_row || (end_row == start_row && start_col > end_col)) {
     api_set_error(err, kErrorTypeValidation, "start is higher than end");
-    goto early_end;
+    return;
   }
 
   bool disallow_nl = (channel_id != VIML_INTERNAL_CALL);
   if (!check_string_array(replacement, disallow_nl, err)) {
-    goto early_end;
+    return;
   }
 
   size_t new_len = replacement.size;
@@ -604,11 +596,11 @@ void nvim_buf_set_text(uint64_t channel_id, Buffer buffer, Integer start_row, In
   if (start_row == end_row) {
     old_byte = (bcount_t)end_col - start_col;
   } else {
-    old_byte += (bcount_t)len_at_start - start_col;
+    old_byte += (bcount_t)strlen(str_at_start) - start_col;
     for (int64_t i = 1; i < end_row - start_row; i++) {
       int64_t lnum = start_row + i;
 
-      const char *bufline = ml_get_buf(buf, (linenr_T)lnum, false);
+      const char *bufline = (char *)ml_get_buf(buf, lnum, false);
       old_byte += (bcount_t)(strlen(bufline)) + 1;
     }
     old_byte += (bcount_t)end_col + 1;
@@ -618,7 +610,7 @@ void nvim_buf_set_text(uint64_t channel_id, Buffer buffer, Integer start_row, In
   String last_item = replacement.items[replacement.size - 1].data.string;
 
   size_t firstlen = (size_t)start_col + first_item.size;
-  size_t last_part_len = len_at_end - (size_t)end_col;
+  size_t last_part_len = strlen(str_at_end) - (size_t)end_col;
   if (replacement.size == 1) {
     firstlen += last_part_len;
   }
@@ -733,7 +725,7 @@ void nvim_buf_set_text(uint64_t channel_id, Buffer buffer, Integer start_row, In
   mark_adjust((linenr_T)start_row,
               (linenr_T)end_row,
               MAXLNUM,
-              (linenr_T)extra,
+              (long)extra,
               kExtmarkNOOP);
 
   colnr_T col_extent = (colnr_T)(end_col
@@ -743,7 +735,8 @@ void nvim_buf_set_text(uint64_t channel_id, Buffer buffer, Integer start_row, In
                  (int)new_len - 1, (colnr_T)last_item.size, new_byte,
                  kExtmarkUndo);
 
-  changed_lines((linenr_T)start_row, 0, (linenr_T)end_row + 1, (linenr_T)extra, true);
+  changed_lines((linenr_T)start_row, 0, (linenr_T)end_row + 1,
+                (long)extra, true);
 
   // adjust cursor like an extmark ( i e it was inside last_part_len)
   if (curwin->w_cursor.lnum == end_row && curwin->w_cursor.col > end_col) {
@@ -758,10 +751,6 @@ end:
   xfree(lines);
   aucmd_restbuf(&aco);
   try_end(err);
-
-early_end:
-  xfree(str_at_start);
-  xfree(str_at_end);
 }
 
 /// Gets a range from the buffer.
@@ -943,9 +932,9 @@ Integer nvim_buf_get_changedtick(Buffer buffer, Error *err)
 /// @param  mode       Mode short-name ("n", "i", "v", ...)
 /// @param  buffer     Buffer handle, or 0 for current buffer
 /// @param[out]  err   Error details, if any
-/// @returns Array of |maparg()|-like dictionaries describing mappings.
+/// @returns Array of maparg()-like dictionaries describing mappings.
 ///          The "buffer" key holds the associated buffer handle.
-ArrayOf(Dictionary) nvim_buf_get_keymap(Buffer buffer, String mode, Error *err)
+ArrayOf(Dictionary) nvim_buf_get_keymap(uint64_t channel_id, Buffer buffer, String mode, Error *err)
   FUNC_API_SINCE(3)
 {
   buf_T *buf = find_buffer_by_handle(buffer, err);
@@ -954,7 +943,7 @@ ArrayOf(Dictionary) nvim_buf_get_keymap(Buffer buffer, String mode, Error *err)
     return (Array)ARRAY_DICT_INIT;
   }
 
-  return keymap_array(mode, buf);
+  return keymap_array(mode, buf, channel_id == LUA_INTERNAL_CALL);
 }
 
 /// Sets a buffer-local |mapping| for the given mode.
@@ -979,6 +968,37 @@ void nvim_buf_del_keymap(uint64_t channel_id, Buffer buffer, String mode, String
 {
   String rhs = { .data = "", .size = 0 };
   modify_keymap(channel_id, buffer, true, mode, lhs, rhs, NULL, err);
+}
+
+/// Gets a map of buffer-local |user-commands|.
+///
+/// @param  buffer  Buffer handle, or 0 for current buffer
+/// @param  opts  Optional parameters. Currently not used.
+/// @param[out]  err   Error details, if any.
+///
+/// @returns Map of maps describing commands.
+Dictionary nvim_buf_get_commands(Buffer buffer, Dict(get_commands) *opts, Error *err)
+  FUNC_API_SINCE(4)
+{
+  bool global = (buffer == -1);
+  bool builtin = api_object_to_bool(opts->builtin, "builtin", false, err);
+  if (ERROR_SET(err)) {
+    return (Dictionary)ARRAY_DICT_INIT;
+  }
+
+  if (global) {
+    if (builtin) {
+      api_set_error(err, kErrorTypeValidation, "builtin=true not implemented");
+      return (Dictionary)ARRAY_DICT_INIT;
+    }
+    return commands_array(NULL);
+  }
+
+  buf_T *buf = find_buffer_by_handle(buffer, err);
+  if (builtin || !buf) {
+    return (Dictionary)ARRAY_DICT_INIT;
+  }
+  return commands_array(buf);
 }
 
 /// Sets a buffer-scoped (b:) variable
@@ -1016,12 +1036,50 @@ void nvim_buf_del_var(Buffer buffer, String name, Error *err)
   dict_set_var(buf->b_vars, name, NIL, true, false, err);
 }
 
+/// Gets a buffer option value
+///
+/// @param buffer     Buffer handle, or 0 for current buffer
+/// @param name       Option name
+/// @param[out] err   Error details, if any
+/// @return Option value
+Object nvim_buf_get_option(Buffer buffer, String name, Error *err)
+  FUNC_API_SINCE(1)
+{
+  buf_T *buf = find_buffer_by_handle(buffer, err);
+
+  if (!buf) {
+    return (Object)OBJECT_INIT;
+  }
+
+  return get_option_from(buf, SREQ_BUF, name, err);
+}
+
+/// Sets a buffer option value. Passing 'nil' as value deletes the option (only
+/// works if there's a global fallback)
+///
+/// @param channel_id
+/// @param buffer     Buffer handle, or 0 for current buffer
+/// @param name       Option name
+/// @param value      Option value
+/// @param[out] err   Error details, if any
+void nvim_buf_set_option(uint64_t channel_id, Buffer buffer, String name, Object value, Error *err)
+  FUNC_API_SINCE(1)
+{
+  buf_T *buf = find_buffer_by_handle(buffer, err);
+
+  if (!buf) {
+    return;
+  }
+
+  set_option_to(channel_id, buf, SREQ_BUF, name, value, err);
+}
+
 /// Gets the full file name for the buffer
 ///
 /// @param buffer     Buffer handle, or 0 for current buffer
 /// @param[out] err   Error details, if any
 /// @return Buffer name
-String nvim_buf_get_name(Buffer buffer, Arena *arena, Error *err)
+String nvim_buf_get_name(Buffer buffer, Error *err)
   FUNC_API_SINCE(1)
 {
   String rv = STRING_INIT;
@@ -1031,7 +1089,7 @@ String nvim_buf_get_name(Buffer buffer, Arena *arena, Error *err)
     return rv;
   }
 
-  return cstr_as_string(buf->b_ffname);
+  return cstr_to_string((char *)buf->b_ffname);
 }
 
 /// Sets the full file name for a buffer
@@ -1167,17 +1225,17 @@ Boolean nvim_buf_del_mark(Buffer buffer, String name, Error *err)
     return res;
   }
 
-  fmark_T *fm = mark_get(buf, curwin, NULL, kMarkAllNoResolve, *name.data);
+  pos_T *pos = getmark_buf(buf, *name.data, false);
 
-  // fm is NULL when there's no mark with the given name
-  if (fm == NULL) {
+  // pos point to NULL when there's no mark with name
+  if (pos == NULL) {
     api_set_error(err, kErrorTypeValidation, "Invalid mark name: '%c'",
                   *name.data);
     return res;
   }
 
-  // mark.lnum is 0 when the mark is not valid in the buffer, or is not set.
-  if (fm->mark.lnum != 0 && fm->fnum == buf->handle) {
+  // pos->lnum is 0 when the mark is not valid in the buffer, or is not set.
+  if (pos->lnum != 0) {
     // since the mark belongs to the buffer delete it.
     res = set_mark(buf, name, 0, 0, err);
   }
@@ -1250,25 +1308,26 @@ ArrayOf(Integer, 2) nvim_buf_get_mark(Buffer buffer, String name, Error *err)
     return rv;
   }
 
-  fmark_T *fm;
-  pos_T pos;
+  pos_T *posp;
   char mark = *name.data;
 
-  fm = mark_get(buf, curwin, NULL, kMarkAllNoResolve, mark);
-  if (fm == NULL) {
+  try_start();
+  bufref_T save_buf;
+  switch_buffer(&save_buf, buf);
+  posp = getmark(mark, false);
+  restore_buffer(&save_buf);
+
+  if (try_end(err)) {
+    return rv;
+  }
+
+  if (posp == NULL) {
     api_set_error(err, kErrorTypeValidation, "Invalid mark name");
     return rv;
   }
-  // (0, 0) uppercase/file mark set in another buffer.
-  if (fm->fnum != buf->handle) {
-    pos.lnum = 0;
-    pos.col = 0;
-  } else {
-    pos = fm->mark;
-  }
 
-  ADD(rv, INTEGER_OBJ(pos.lnum));
-  ADD(rv, INTEGER_OBJ(pos.col));
+  ADD(rv, INTEGER_OBJ(posp->lnum));
+  ADD(rv, INTEGER_OBJ(posp->col));
 
   return rv;
 }
@@ -1309,6 +1368,63 @@ Object nvim_buf_call(Buffer buffer, LuaRef fun, Error *err)
   aucmd_restbuf(&aco);
   try_end(err);
   return res;
+}
+
+/// Create a new user command |user-commands| in the given buffer.
+///
+/// @param  buffer  Buffer handle, or 0 for current buffer.
+/// @param[out] err Error details, if any.
+/// @see nvim_create_user_command
+void nvim_buf_create_user_command(Buffer buffer, String name, Object command,
+                                  Dict(user_command) *opts, Error *err)
+  FUNC_API_SINCE(9)
+{
+  buf_T *target_buf = find_buffer_by_handle(buffer, err);
+  if (ERROR_SET(err)) {
+    return;
+  }
+
+  buf_T *save_curbuf = curbuf;
+  curbuf = target_buf;
+  create_user_command(name, command, opts, UC_BUFFER, err);
+  curbuf = save_curbuf;
+}
+
+/// Delete a buffer-local user-defined command.
+///
+/// Only commands created with |:command-buffer| or
+/// |nvim_buf_create_user_command()| can be deleted with this function.
+///
+/// @param  buffer  Buffer handle, or 0 for current buffer.
+/// @param  name    Name of the command to delete.
+/// @param[out] err Error details, if any.
+void nvim_buf_del_user_command(Buffer buffer, String name, Error *err)
+  FUNC_API_SINCE(9)
+{
+  garray_T *gap;
+  if (buffer == -1) {
+    gap = &ucmds;
+  } else {
+    buf_T *buf = find_buffer_by_handle(buffer, err);
+    gap = &buf->b_ucmds;
+  }
+
+  for (int i = 0; i < gap->ga_len; i++) {
+    ucmd_T *cmd = USER_CMD_GA(gap, i);
+    if (!STRCMP(name.data, cmd->uc_name)) {
+      free_ucmd(cmd);
+
+      gap->ga_len -= 1;
+
+      if (i < gap->ga_len) {
+        memmove(cmd, cmd + 1, (size_t)(gap->ga_len - i) * sizeof(ucmd_T));
+      }
+
+      return;
+    }
+  }
+
+  api_set_error(err, kErrorTypeException, "No such user-defined command: %s", name.data);
 }
 
 Dictionary nvim__buf_stats(Buffer buffer, Error *err)
@@ -1369,15 +1485,14 @@ static void fix_cursor(linenr_T lo, linenr_T hi, linenr_T extra)
 // Normalizes 0-based indexes to buffer line numbers
 static int64_t normalize_index(buf_T *buf, int64_t index, bool end_exclusive, bool *oob)
 {
-  assert(buf->b_ml.ml_line_count > 0);
-  int64_t max_index = buf->b_ml.ml_line_count + (int)end_exclusive - 1;
+  int64_t line_count = buf->b_ml.ml_line_count;
   // Fix if < 0
-  index = index < 0 ? max_index + index + 1 : index;
+  index = index < 0 ? line_count + index + (int)end_exclusive : index;
 
   // Check for oob
-  if (index > max_index) {
+  if (index > line_count) {
     *oob = true;
-    index = max_index;
+    index = line_count;
   } else if (index < 0) {
     *oob = true;
     index = 0;

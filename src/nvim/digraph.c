@@ -12,19 +12,18 @@
 #include "nvim/ascii.h"
 #include "nvim/charset.h"
 #include "nvim/digraph.h"
-#include "nvim/drawscreen.h"
 #include "nvim/eval/typval.h"
+#include "nvim/ex_cmds2.h"
 #include "nvim/ex_docmd.h"
 #include "nvim/ex_getln.h"
 #include "nvim/garray.h"
 #include "nvim/getchar.h"
-#include "nvim/mapping.h"
 #include "nvim/mbyte.h"
 #include "nvim/memory.h"
 #include "nvim/message.h"
 #include "nvim/normal.h"
 #include "nvim/os/input.h"
-#include "nvim/runtime.h"
+#include "nvim/screen.h"
 #include "nvim/strings.h"
 #include "nvim/vim.h"
 
@@ -1662,22 +1661,22 @@ bool check_digraph_chars_valid(int char1, int char2)
 /// format: {c1}{c2} char {c1}{c2} char ...
 ///
 /// @param str
-void putdigraph(char *str)
+void putdigraph(char_u *str)
 {
   while (*str != NUL) {
-    str = skipwhite(str);
+    str = (char_u *)skipwhite((char *)str);
 
     if (*str == NUL) {
       return;
     }
-    uint8_t char1 = (uint8_t)(*str++);
-    uint8_t char2 = (uint8_t)(*str++);
+    char_u char1 = *str++;
+    char_u char2 = *str++;
 
     if (!check_digraph_chars_valid(char1, char2)) {
       return;
     }
 
-    str = skipwhite(str);
+    str = (char_u *)skipwhite((char *)str);
 
     if (!ascii_isdigit(*str)) {
       emsg(_(e_number_exp));
@@ -1695,7 +1694,7 @@ static void digraph_header(const char *msg)
   if (msg_col > 0) {
     msg_putchar('\n');
   }
-  msg_outtrans_attr(msg, HL_ATTR(HLF_CM));
+  msg_outtrans_attr((const char_u *)msg, HL_ATTR(HLF_CM));
   msg_putchar('\n');
 }
 
@@ -1846,7 +1845,7 @@ static void printdigraph(const digr_T *dp, result_T *previous)
     *p++ = dp->char2;
     *p++ = ' ';
     *p = NUL;
-    msg_outtrans((char *)buf);
+    msg_outtrans(buf);
     p = buf;
 
     // add a space to draw a composing char on
@@ -1856,14 +1855,14 @@ static void printdigraph(const digr_T *dp, result_T *previous)
     p += utf_char2bytes(dp->result, (char *)p);
 
     *p = NUL;
-    msg_outtrans_attr((char *)buf, HL_ATTR(HLF_8));
+    msg_outtrans_attr(buf, HL_ATTR(HLF_8));
     p = buf;
     if (char2cells(dp->result) == 1) {
       *p++ = ' ';
     }
     assert(p >= buf);
     vim_snprintf((char *)p, sizeof(buf) - (size_t)(p - buf), " %3d", dp->result);
-    msg_outtrans((char *)buf);
+    msg_outtrans(buf);
   }
 }
 
@@ -1917,7 +1916,7 @@ static bool digraph_set_common(const typval_T *argchars, const typval_T *argdigr
 }
 
 /// "digraph_get()" function
-void f_digraph_get(typval_T *argvars, typval_T *rettv, EvalFuncData fptr)
+void f_digraph_get(typval_T *argvars, typval_T *rettv, FunPtr fptr)
 {
   rettv->v_type = VAR_STRING;
   rettv->vval.v_string = NULL;  // Return empty string for failure
@@ -1926,19 +1925,19 @@ void f_digraph_get(typval_T *argvars, typval_T *rettv, EvalFuncData fptr)
   if (digraphs == NULL) {
     return;
   }
-  if (strlen(digraphs) != 2) {
+  if (STRLEN(digraphs) != 2) {
     semsg(_(e_digraph_must_be_just_two_characters_str), digraphs);
     return;
   }
   int code = digraph_get(digraphs[0], digraphs[1], false);
 
-  char buf[NUMBUFLEN];
-  buf[utf_char2bytes(code, buf)] = NUL;
-  rettv->vval.v_string = xstrdup(buf);
+  char_u buf[NUMBUFLEN];
+  buf[utf_char2bytes(code, (char *)buf)] = NUL;
+  rettv->vval.v_string = (char *)vim_strsave(buf);
 }
 
 /// "digraph_getlist()" function
-void f_digraph_getlist(typval_T *argvars, typval_T *rettv, EvalFuncData fptr)
+void f_digraph_getlist(typval_T *argvars, typval_T *rettv, FunPtr fptr)
 {
   bool flag_list_all;
 
@@ -1957,7 +1956,7 @@ void f_digraph_getlist(typval_T *argvars, typval_T *rettv, EvalFuncData fptr)
 }
 
 /// "digraph_set()" function
-void f_digraph_set(typval_T *argvars, typval_T *rettv, EvalFuncData fptr)
+void f_digraph_set(typval_T *argvars, typval_T *rettv, FunPtr fptr)
 {
   rettv->v_type = VAR_BOOL;
   rettv->vval.v_bool = kBoolVarFalse;
@@ -1970,7 +1969,7 @@ void f_digraph_set(typval_T *argvars, typval_T *rettv, EvalFuncData fptr)
 }
 
 /// "digraph_setlist()" function
-void f_digraph_setlist(typval_T *argvars, typval_T *rettv, EvalFuncData fptr)
+void f_digraph_setlist(typval_T *argvars, typval_T *rettv, FunPtr fptr)
 {
   rettv->v_type = VAR_BOOL;
   rettv->vval.v_bool = kBoolVarFalse;
@@ -2010,8 +2009,8 @@ void f_digraph_setlist(typval_T *argvars, typval_T *rettv, EvalFuncData fptr)
 
 /// structure used for b_kmap_ga.ga_data
 typedef struct {
-  char *from;
-  char *to;
+  char_u *from;
+  char_u *to;
 } kmap_T;
 
 #define KMAP_MAXLEN 20  // maximum length of "from" or "to"
@@ -2036,7 +2035,7 @@ char *keymap_init(void)
 
     // Source the keymap file.  It will contain a ":loadkeymap" command
     // which will call ex_loadkeymap() below.
-    buflen = strlen(curbuf->b_p_keymap) + strlen(p_enc) + 14;
+    buflen = STRLEN(curbuf->b_p_keymap) + STRLEN(p_enc) + 14;
     buf = xmalloc(buflen);
 
     // try finding "keymap/'keymap'_'encoding'.vim"  in 'runtimepath'
@@ -2064,10 +2063,10 @@ char *keymap_init(void)
 /// @param eap
 void ex_loadkeymap(exarg_T *eap)
 {
-  char *s;
+  char_u *s;
 
 #define KMAP_LLEN 200  // max length of "to" and "from" together
-  char buf[KMAP_LLEN + 11];
+  char_u buf[KMAP_LLEN + 11];
   char *save_cpo = p_cpo;
 
   if (!getline_equal(eap->getline, eap->cookie, getsourceline)) {
@@ -2092,17 +2091,17 @@ void ex_loadkeymap(exarg_T *eap)
       break;
     }
 
-    char *p = skipwhite(line);
+    char_u *p = (char_u *)skipwhite(line);
 
     if ((*p != '"') && (*p != NUL)) {
       kmap_T *kp = GA_APPEND_VIA_PTR(kmap_T, &curbuf->b_kmap_ga);
       s = skiptowhite(p);
-      kp->from = xstrnsave(p, (size_t)(s - p));
-      p = skipwhite(s);
+      kp->from = vim_strnsave(p, (size_t)(s - p));
+      p = (char_u *)skipwhite((char *)s);
       s = skiptowhite(p);
-      kp->to = xstrnsave(p, (size_t)(s - p));
+      kp->to = vim_strnsave(p, (size_t)(s - p));
 
-      if ((strlen(kp->from) + strlen(kp->to) >= KMAP_LLEN)
+      if ((STRLEN(kp->from) + STRLEN(kp->to) >= KMAP_LLEN)
           || (*kp->from == NUL)
           || (*kp->to == NUL)) {
         if (*kp->to == NUL) {
@@ -2118,10 +2117,10 @@ void ex_loadkeymap(exarg_T *eap)
 
   // setup ":lmap" to map the keys
   for (int i = 0; i < curbuf->b_kmap_ga.ga_len; i++) {
-    vim_snprintf(buf, sizeof(buf), "<buffer> %s %s",
+    vim_snprintf((char *)buf, sizeof(buf), "<buffer> %s %s",
                  ((kmap_T *)curbuf->b_kmap_ga.ga_data)[i].from,
                  ((kmap_T *)curbuf->b_kmap_ga.ga_data)[i].to);
-    (void)do_map(MAPTYPE_MAP, (char_u *)buf, MODE_LANGMAP, false);
+    (void)do_map(0, buf, MODE_LANGMAP, false);
   }
 
   p_cpo = save_cpo;
@@ -2158,7 +2157,7 @@ static void keymap_unload(void)
 
   for (int i = 0; i < curbuf->b_kmap_ga.ga_len; i++) {
     vim_snprintf(buf, sizeof(buf), "<buffer> %s", kp[i].from);
-    (void)do_map(MAPTYPE_UNMAP, (char_u *)buf, MODE_LANGMAP, false);
+    (void)do_map(1, (char_u *)buf, MODE_LANGMAP, false);
   }
   keymap_ga_clear(&curbuf->b_kmap_ga);
 

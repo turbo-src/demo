@@ -282,7 +282,7 @@ tag		char	      note action in Normal mode	~
 |/|		/{pattern}<CR>	1  search forward for the Nth occurrence of
 				   {pattern}
 |/<CR>|		/<CR>		1  search forward for {pattern} of last search
-|0|		0		1  cursor to the first char of the line
+|count|		0		1  cursor to the first char of the line
 |count|		1		   prepend to command to give a count
 |count|		2			"
 |count|		3			"
@@ -1101,11 +1101,8 @@ tag		command		action in Command-line editing mode	~
 5. Terminal mode				*terminal-mode-index*
 
 In a |terminal| buffer all keys except CTRL-\ are forwarded to the terminal
-job.  If CTRL-\ is pressed, the next key is forwarded unless it is CTRL-N
-or CTRL-O.
+job.  If CTRL-\ is pressed, the next key is forwarded unless it is CTRL-N.
 Use |CTRL-\_CTRL-N| to go to Normal mode.
-Use |t_CTRL-\_CTRL-O| to execute one normal mode command and then return
-to terminal mode.
 
 
 You found it, Arthur!				*holy-grail*
@@ -1143,7 +1140,6 @@ tag		command		action ~
 				be remapped
 |:args|		:ar[gs]		print the argument list
 |:argadd|	:arga[dd]	add items to the argument list
-|:argdedupe|	:argded[upe]	remove duplicates from the argument list
 |:argdelete|	:argd[elete]	delete items from the argument list
 |:argedit|	:arge[dit]	add item to the argument list and edit it
 |:argdo|	:argdo		do a command on all items in the argument list
@@ -1626,20 +1622,17 @@ tag		command		action ~
 |:tjump|	:tj[ump]	like ":tselect", but jump directly when there
 				is only one match
 |:tlast|	:tl[ast]	jump to last matching tag
-|:tlmenu|	:tlm[enu]	add menu for |Terminal-mode|
-|:tlnoremenu|	:tln[oremenu]	like ":noremenu" but for |Terminal-mode|
-|:tlunmenu|	:tlu[nmenu]	remove menu for |Terminal-mode|
-|:tmapclear|	:tmapc[lear]	remove all mappings for |Terminal-mode|
-|:tmap|		:tma[p]		like ":map" but for |Terminal-mode|
+|:tmapclear|	:tmapc[lear]	remove all mappings for Terminal-Job mode
+|:tmap|		:tma[p]		like ":map" but for Terminal-Job mode
 |:tmenu|	:tm[enu]	define menu tooltip
 |:tnext|	:tn[ext]	jump to next matching tag
-|:tnoremap|	:tno[remap]	like ":noremap" but for |Terminal-mode|
+|:tnoremap|	:tno[remap]	like ":noremap" but for Terminal-Job mode
 |:topleft|	:to[pleft]	make split window appear at top or far left
 |:tprevious|	:tp[revious]	jump to previous matching tag
 |:trewind|	:tr[ewind]	jump to first matching tag
 |:try|		:try		execute commands, abort on error or exception
 |:tselect|	:ts[elect]	list matching tags and select one
-|:tunmap|	:tunma[p]	like ":unmap" but for |Terminal-mode|
+|:tunmap|	:tunma[p]	like ":unmap" but for Terminal-Job mode
 |:tunmenu|	:tu[nmenu]	remove menu tooltip
 |:undo|		:u[ndo]		undo last change(s)
 |:undojoin|	:undoj[oin]	join next change with previous undo block

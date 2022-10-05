@@ -99,8 +99,8 @@ void raw_line(Integer grid, Integer row, Integer startcol,
               LineFlags flags, const schar_T *chunk, const sattr_T *attrs)
   FUNC_API_NOEXPORT FUNC_API_COMPOSITOR_IMPL;
 
-void event(char *name, Array args)
-  FUNC_API_NOEXPORT FUNC_API_COMPOSITOR_IMPL;
+void event(char *name, Array args, bool *args_consumed)
+  FUNC_API_NOEXPORT;
 
 void win_pos(Integer grid, Window win, Integer startrow,
              Integer startcol, Integer width, Integer height)
@@ -121,7 +121,7 @@ void msg_set_pos(Integer grid, Integer row, Boolean scrolled, String sep_char)
 void win_viewport(Integer grid, Window win, Integer topline,
                   Integer botline, Integer curline, Integer curcol,
                   Integer line_count)
-  FUNC_API_SINCE(7) FUNC_API_BRIDGE_IMPL;
+  FUNC_API_SINCE(7) FUNC_API_REMOTE_ONLY;
 
 void win_extmark(Integer grid, Window win, Integer ns_id, Integer mark_id,
                  Integer row, Integer col)

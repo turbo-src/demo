@@ -8,7 +8,6 @@
 #include "nvim/api/private/defs.h"
 #include "nvim/globals.h"
 #include "nvim/highlight_defs.h"
-#include "nvim/memory.h"
 
 typedef enum {
   kUICmdline = 0,
@@ -68,11 +67,6 @@ struct ui_t {
 
   void (*inspect)(UI *ui, Dictionary *info);
 };
-
-typedef struct ui_event_callback {
-  LuaRef cb;
-  bool ext_widgets[kUIGlobalCount];
-} UIEventCallback;
 
 #ifdef INCLUDE_GENERATED_DECLARATIONS
 # include "ui.h.generated.h"

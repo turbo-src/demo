@@ -1,7 +1,7 @@
 " Vim filetype plugin
 " Language:	Vim
 " Maintainer:	Bram Moolenaar <Bram@vim.org>
-" Last Change:	2022 Sep 09
+" Last Change:	2021 Apr 11
 
 " Only do this when not done yet for this buffer
 if exists("b:did_ftplugin")
@@ -109,7 +109,7 @@ if exists("loaded_matchit")
   " - set spl=de,en
   " - au! FileType javascript syntax region foldBraces start=/{/ end=/}/ …
   let b:match_skip = 'synIDattr(synID(line("."),col("."),1),"name")
-        \ =~? "comment\\|string\\|vimLetHereDoc\\|vimSynReg\\|vimSet"'
+        \ =~? "comment\\|string\\|vimSynReg\\|vimSet"'
 endif
 
 let &cpo = s:cpo_save

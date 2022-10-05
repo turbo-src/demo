@@ -239,8 +239,7 @@ g8			Print the hex values of the bytes used in the
 
 			Type |i| to enter |Terminal-mode|, then keys are sent to
 			the job running in the terminal. Type <C-\><C-N> to
-			leave Terminal-mode. |CTRL-\_CTRL-N|. Type <C-\><C-O>
-			to execute a single normal mode command |t_CTRL-\_CTRL-O|
+			leave Terminal-mode. |CTRL-\_CTRL-N|
 
 			Fails if changes have been made to the current buffer,
 			unless 'hidden' is set.
@@ -347,11 +346,7 @@ g8			Print the hex values of the bytes used in the
 			Only string variables can be used.  After the
 			redirection starts, if the variable is removed or
 			locked or the variable type is changed, then further
-			command output messages will cause errors.  When using
-			a local variable (l:var in a function or s:var in a
-			script) and another `:redir` causes the current one to
-			end, the scope might be different and the assignment
-			fails.
+			command output messages will cause errors.
 			To get the output of one command the |execute()|
 			function can be used instead of redirection.
 

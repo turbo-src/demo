@@ -21,11 +21,11 @@ typedef struct {
 
 typedef struct u_entry u_entry_T;
 struct u_entry {
-  u_entry_T *ue_next;           // pointer to next entry in list
+  u_entry_T *ue_next;         // pointer to next entry in list
   linenr_T ue_top;              // number of line above undo block
   linenr_T ue_bot;              // number of line below undo block
   linenr_T ue_lcount;           // linecount when u_save called
-  char **ue_array;              // array of lines in undo block
+  char_u **ue_array;       // array of lines in undo block
   long ue_size;                 // number of lines in ue_array
 #ifdef U_DEBUG
   int ue_magic;                 // magic number to check allocation
@@ -73,5 +73,11 @@ struct u_header {
 #define UH_CHANGED  0x01        // b_changed flag before undo/after redo
 #define UH_EMPTYBUF 0x02        // buffer was empty
 #define UH_RELOAD   0x04        // buffer was reloaded
+
+/// Structure passed around between undofile functions.
+typedef struct {
+  buf_T *bi_buf;
+  FILE *bi_fp;
+} bufinfo_T;
 
 #endif  // NVIM_UNDO_DEFS_H

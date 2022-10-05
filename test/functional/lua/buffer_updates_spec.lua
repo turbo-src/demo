@@ -252,8 +252,9 @@ describe('lua buffer event callbacks: on_lines', function()
     eq(2, meths.win_get_cursor(0)[1])
   end)
 
-  it('does not SEGFAULT when accessing window buffer info in on_detach #14998', function()
-    local code = [[
+  it('does not SEGFAULT when calling win_findbuf in on_detach', function()
+
+    exec_lua[[
       local buf = vim.api.nvim_create_buf(false, false)
 
       vim.cmd"split"
@@ -261,18 +262,12 @@ describe('lua buffer event callbacks: on_lines', function()
 
       vim.api.nvim_buf_attach(buf, false, {
         on_detach = function(_, buf)
-          vim.fn.tabpagebuflist()
           vim.fn.win_findbuf(buf)
         end
       })
     ]]
 
-    exec_lua(code)
     command("q!")
-    helpers.assert_alive()
-
-    exec_lua(code)
-    command("bd!")
     helpers.assert_alive()
   end)
 
@@ -617,15 +612,7 @@ describe('lua: nvim_buf_attach on_bytes', function()
       }
 
       feed("<esc>")
-      -- replacing with expression register
-      feed([[:%s/b/\=5+5]])
-      check_events {
-        { "test1", "bytes", 1, 3, 0, 1, 1, 0, 1, 1, 0, 2, 2 };
-        { "test1", "bytes", 1, 5, 0, 1, 1, 0, 2, 2, 0, 1, 1 };
-      }
-
-      feed("<esc>")
-      -- replacing with backslash
+      -- replacing with escaped characters
       feed([[:%s/b/\\]])
       check_events {
         { "test1", "bytes", 1, 3, 0, 1, 1, 0, 1, 1, 0, 1, 1 };
@@ -633,24 +620,8 @@ describe('lua: nvim_buf_attach on_bytes', function()
       }
 
       feed("<esc>")
-      -- replacing with backslash from expression register
-      feed([[:%s/b/\='\']])
-      check_events {
-        { "test1", "bytes", 1, 3, 0, 1, 1, 0, 1, 1, 0, 1, 1 };
-        { "test1", "bytes", 1, 5, 0, 1, 1, 0, 1, 1, 0, 1, 1 };
-      }
-
-      feed("<esc>")
-      -- replacing with backslash followed by another character
-      feed([[:%s/b/\\!]])
-      check_events {
-        { "test1", "bytes", 1, 3, 0, 1, 1, 0, 1, 1, 0, 2, 2 };
-        { "test1", "bytes", 1, 5, 0, 1, 1, 0, 2, 2, 0, 1, 1 };
-      }
-
-      feed("<esc>")
-      -- replacing with backslash followed by another character from expression register
-      feed([[:%s/b/\='\!']])
+      -- replacing with expression register
+      feed([[:%s/b/\=5+5]])
       check_events {
         { "test1", "bytes", 1, 3, 0, 1, 1, 0, 1, 1, 0, 2, 2 };
         { "test1", "bytes", 1, 5, 0, 1, 1, 0, 2, 2, 0, 1, 1 };

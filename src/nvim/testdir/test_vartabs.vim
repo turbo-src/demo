@@ -1,7 +1,8 @@
 " Test for variable tabstops
 
-source check.vim
-CheckFeature vartabs
+if !has("vartabs")
+  finish
+endif
 
 source view_util.vim
 

@@ -1,8 +1,9 @@
 " Test for python 2 commands.
 " TODO: move tests from test86.in here.
 
-source check.vim
-CheckFeature python
+if !has('python')
+  finish
+endif
 
 func Test_pydo()
   " Check deleting lines does not trigger ml_get error.

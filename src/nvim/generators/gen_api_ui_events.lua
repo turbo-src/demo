@@ -15,9 +15,6 @@ local client_output = io.open(arg[8], 'wb')
 local c_grammar = require('generators.c_grammar')
 local events = c_grammar.grammar:match(input:read('*all'))
 
-_G.vim = loadfile(nvimdir..'/../../runtime/lua/vim/shared.lua')()
-local hashy = require'generators.hashy'
-
 local function write_signature(output, ev, prefix, notype)
   output:write('('..prefix)
   if prefix == "" and #ev.parameters == 0 then
@@ -36,12 +33,20 @@ local function write_signature(output, ev, prefix, notype)
   output:write(')')
 end
 
-local function write_arglist(output, ev)
+local function write_arglist(output, ev, need_copy)
+  output:write('  Array args = ARRAY_DICT_INIT;\n')
   for j = 1, #ev.parameters do
     local param = ev.parameters[j]
     local kind = string.upper(param[1])
-    output:write('  ADD_C(args, ')
+    local do_copy = need_copy and (kind == "ARRAY" or kind == "DICTIONARY" or kind == "STRING" or kind == "OBJECT")
+    output:write('  ADD(args, ')
+    if do_copy then
+      output:write('copy_object(')
+    end
     output:write(kind..'_OBJ('..param[2]..')')
+    if do_copy then
+      output:write(')')
+    end
     output:write(');\n')
   end
 end
@@ -75,8 +80,6 @@ local function call_ui_event_method(output, ev)
       hlattrs_args_count = hlattrs_args_count + 1
     elseif kind == 'Object' then
       output:write('args.items['..(j-1)..'];\n')
-    elseif kind == 'Window' then
-      output:write('(Window)args.items['..(j-1)..'].data.integer;\n')
     else
       output:write('args.items['..(j-1)..'].data.'..string.lower(kind)..';\n')
     end
@@ -113,9 +116,7 @@ for i = 1, #events do
       remote_output:write('static void remote_ui_'..ev.name)
       write_signature(remote_output, ev, 'UI *ui')
       remote_output:write('\n{\n')
-      remote_output:write('  UIData *data = ui->data;\n')
-      remote_output:write('  Array args = data->call_buf;\n')
-      write_arglist(remote_output, ev)
+      write_arglist(remote_output, ev, true)
       remote_output:write('  push_call(ui, "'..ev.name..'", args);\n')
       remote_output:write('}\n\n')
     end
@@ -127,7 +128,7 @@ for i = 1, #events do
         local param = ev.parameters[j]
         local copy = 'copy_'..param[2]
         if param[1] == 'String' then
-          send = send..'  String copy_'..param[2]..' = copy_string('..param[2]..', NULL);\n'
+          send = send..'  String copy_'..param[2]..' = copy_string('..param[2]..');\n'
           argv = argv..', '..copy..'.data, INT2PTR('..copy..'.size)'
           recv = (recv..'  String '..param[2]..
                           ' = (String){.data = argv['..argc..'],'..
@@ -136,7 +137,7 @@ for i = 1, #events do
           recv_cleanup = recv_cleanup..'  api_free_string('..param[2]..');\n'
           argc = argc+2
         elseif param[1] == 'Array' then
-          send = send..'  Array '..copy..' = copy_array('..param[2]..', NULL);\n'
+          send = send..'  Array '..copy..' = copy_array('..param[2]..');\n'
           argv = argv..', '..copy..'.items, INT2PTR('..copy..'.size)'
           recv = (recv..'  Array '..param[2]..
                           ' = (Array){.items = argv['..argc..'],'..
@@ -146,7 +147,7 @@ for i = 1, #events do
           argc = argc+2
         elseif param[1] == 'Object' then
           send = send..'  Object *'..copy..' = xmalloc(sizeof(Object));\n'
-          send = send..'  *'..copy..' = copy_object('..param[2]..', NULL);\n'
+          send = send..'  *'..copy..' = copy_object('..param[2]..');\n'
           argv = argv..', '..copy
           recv = recv..'  Object '..param[2]..' = *(Object *)argv['..argc..'];\n'
           recv_argv = recv_argv..', '..param[2]
@@ -182,10 +183,9 @@ for i = 1, #events do
     write_signature(call_output, ev, '')
     call_output:write('\n{\n')
     if ev.remote_only then
-      call_output:write('  Array args = call_buf;\n')
-      write_arglist(call_output, ev)
+      write_arglist(call_output, ev, false)
       call_output:write('  UI_LOG('..ev.name..');\n')
-      call_output:write('  ui_call_event("'..ev.name..'", args);\n')
+      call_output:write('  ui_event("'..ev.name..'", args);\n')
     elseif ev.compositor_impl then
       call_output:write('  UI_CALL')
       write_signature(call_output, ev, '!ui->composed, '..ev.name..', ui', true)
@@ -213,25 +213,24 @@ for i = 1, #events do
   end
 end
 
-local client_events = {}
-for _,ev in ipairs(events) do
-  if (not ev.noexport) and ((not ev.remote_only) or ev.client_impl) then
-    client_events[ev.name] = ev
+-- Generate the map_init method for client handlers
+client_output:write([[
+void ui_client_methods_table_init(void)
+{
+
+]])
+
+for i = 1, #events do
+  local fn = events[i]
+  if (not fn.noexport) and ((not fn.remote_only) or fn.client_impl) then
+    client_output:write('  add_ui_client_event_handler('..
+                '(String) {.data = "'..fn.name..'", '..
+                '.size = sizeof("'..fn.name..'") - 1}, '..
+                '(UIClientHandler) ui_client_event_'..fn.name..');\n')
   end
 end
 
-local hashorder, hashfun = hashy.hashy_hash("ui_client_handler", vim.tbl_keys(client_events), function (idx)
-  return "event_handlers["..idx.."].name"
-end)
-
-client_output:write("static const UIClientHandler event_handlers[] = {\n")
-
-for _, name in ipairs(hashorder) do
-  client_output:write('  { .name = "'..name..'", .fn = ui_client_event_'..name..'},\n')
-end
-
-client_output:write('\n};\n\n')
-client_output:write(hashfun)
+client_output:write('\n}\n\n')
 
 proto_output:close()
 call_output:close()

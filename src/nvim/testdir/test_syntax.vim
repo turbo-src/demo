@@ -1,8 +1,5 @@
 " Test for syntax and syntax iskeyword option
 
-source check.vim
-CheckFeature syntax
-
 source view_util.vim
 source screendump.vim
 
@@ -188,26 +185,16 @@ func Test_syntax_completion()
   call assert_equal('"syn sync ccomment clear fromstart linebreaks= linecont lines= match maxlines= minlines= region', @:)
 
   " Check that clearing "Aap" avoids it showing up before Boolean.
-  hi @Aap ctermfg=blue
+  hi Aap ctermfg=blue
   call feedkeys(":syn list \<C-A>\<C-B>\"\<CR>", 'tx')
-  call assert_match('^"syn list @Aap @boolean @character ', @:)
-  hi clear @Aap
+  call assert_match('^"syn list Aap Boolean Character ', @:)
+  hi clear Aap
 
   call feedkeys(":syn list \<C-A>\<C-B>\"\<CR>", 'tx')
-  call assert_match('^"syn list @boolean @character ', @:)
+  call assert_match('^"syn list Boolean Character ', @:)
 
   call feedkeys(":syn match \<C-A>\<C-B>\"\<CR>", 'tx')
-  call assert_match('^"syn match @boolean @character ', @:)
-
-  syn cluster Aax contains=Aap
-  call feedkeys(":syn list @A\<C-A>\<C-B>\"\<CR>", 'tx')
-  call assert_match('^"syn list @Aax', @:)
-endfunc
-
-func Test_echohl_completion()
-  call feedkeys(":echohl no\<C-A>\<C-B>\"\<CR>", 'tx')
-  " call assert_equal('"echohl NonText Normal none', @:)
-  call assert_equal('"echohl NonText Normal NormalFloat none', @:)
+  call assert_match('^"syn match Boolean Character ', @:)
 endfunc
 
 func Test_syntax_arg_skipped()
@@ -393,7 +380,7 @@ func Test_invalid_name()
   syn keyword Nop yes
   call assert_fails("syntax keyword Wr\x17ong bar", 'E669:')
   syntax keyword @Wrong bar
-  call assert_fails("syntax keyword @#Wrong bar", 'E5248:')
+  call assert_match('W18:', execute('1messages'))
   syn clear
   hi clear Nop
   hi clear @Wrong
@@ -758,9 +745,8 @@ func Test_search_syntax_skip()
   1
   call search('VIM', 'w', '', 0, 'synIDattr(synID(line("."), col("."), 1), "name") =~? "comment"')
   call assert_equal('Another Text for VIM', getline('.'))
-
   1
-  call search('VIM', 'cw', '', 0, 'synIDattr(synID(line("."), col("."), 1), "name") !~? "string"')
+  call search('VIM', 'w', '', 0, 'synIDattr(synID(line("."), col("."), 1), "name") !~? "string"')
   call assert_equal(' let a = "VIM"', getline('.'))
 
   " Skip argument using Lambda.
@@ -769,104 +755,27 @@ func Test_search_syntax_skip()
   call assert_equal('Another Text for VIM', getline('.'))
 
   1
-  call search('VIM', 'cw', '', 0, { -> synIDattr(synID(line("."), col("."), 1), "name") !~? "string"})
+  call search('VIM', 'w', '', 0, { -> synIDattr(synID(line("."), col("."), 1), "name") !~? "string"})
   call assert_equal(' let a = "VIM"', getline('.'))
 
   " Skip argument using funcref.
   func InComment()
     return synIDattr(synID(line("."), col("."), 1), "name") =~? "comment"
   endfunc
-  func NotInString()
+  func InString()
     return synIDattr(synID(line("."), col("."), 1), "name") !~? "string"
   endfunc
-
   1
   call search('VIM', 'w', '', 0, function('InComment'))
   call assert_equal('Another Text for VIM', getline('.'))
 
   1
-  call search('VIM', 'cw', '', 0, function('NotInString'))
+  call search('VIM', 'w', '', 0, function('InString'))
   call assert_equal(' let a = "VIM"', getline('.'))
 
   delfunc InComment
-  delfunc NotInString
+  delfunc InString
   bwipe!
-endfunc
-
-func Test_syn_contained_transparent()
-  " Comments starting with "Regression:" show the result when the highlighting
-  " span of the containing item is assigned to the contained region.
-  syntax on
-
-  let l:case = "Transparent region contained in region"
-  new
-  syntax region X start=/\[/ end=/\]/ contained transparent
-  syntax region Y start=/(/ end=/)/ contains=X
-
-  call setline(1,  "==(--[~~]--)==")
-  let l:expected = "  YYYYYYYYYY  "
-  eval AssertHighlightGroups(1, 1, l:expected, 1, l:case)
-  syntax clear Y X
-  bw!
-
-  let l:case = "Transparent region extends region"
-  new
-  syntax region X start=/\[/ end=/\]/ contained transparent
-  syntax region Y start=/(/ end=/)/ end=/e/ contains=X
-
-  call setline(1,  "==(--[~~e~~]--)==")
-  let l:expected = "  YYYYYYYYYYYYY  "
-  " Regression:    "  YYYYYYY   YYY  "
-  eval AssertHighlightGroups(1, 1, l:expected, 1, l:case)
-  syntax clear Y X
-  bw!
-
-  let l:case = "Nested transparent regions extend region"
-  new
-  syntax region X start=/\[/ end=/\]/ contained transparent
-  syntax region Y start=/(/ end=/)/ end=/e/ contains=X
-
-  call setline(1,  "==(--[~~e~~[~~e~~]~~e~~]--)==")
-  let l:expected = "  YYYYYYYYYYYYYYYYYYYYYYYYY  "
-  " Regression:    "  YYYYYYY         YYYYYYYYY  "
-  eval AssertHighlightGroups(1, 1, l:expected, 1, l:case)
-  syntax clear Y X
-  bw!
-
-  let l:case = "Transparent region contained in match"
-  new
-  syntax region X start=/\[/ end=/\]/ contained transparent
-  syntax match Y /(.\{-})/ contains=X
-
-  call setline(1,  "==(--[~~]--)==")
-  let l:expected = "  YYYYYYYYYY  "
-  eval AssertHighlightGroups(1, 1, l:expected, 1, l:case)
-  syntax clear Y X
-  bw!
-
-  let l:case = "Transparent region extends match"
-  new
-  syntax region X start=/\[/ end=/\]/ contained transparent
-  syntax match Y /(.\{-}[e)]/ contains=X
-
-  call setline(1,  "==(--[~~e~~]--)==")
-  let l:expected = "  YYYYYYYYYY     "
-  " Regression:    "  YYYYYYY        "
-  eval AssertHighlightGroups(1, 1, l:expected, 1, l:case)
-  syntax clear Y X
-  bw!
-
-  let l:case = "Nested transparent regions extend match"
-  new
-  syntax region X start=/\[/ end=/\]/ contained transparent
-  syntax match Y /(.\{-}[e)]/ contains=X
-
-  call setline(1,  "==(--[~~e~~[~~e~~]~~e~~]--)==")
-  let l:expected = "  YYYYYYYYYYYYYYYYYYYYYY     "
-  " Regression:    "  YYYYYYY         YYYYYY     "
-  eval AssertHighlightGroups(1, 1, l:expected, 1, l:case)
-  syntax clear Y X
-  bw!
 endfunc
 
 func Test_syn_include_contains_TOP()

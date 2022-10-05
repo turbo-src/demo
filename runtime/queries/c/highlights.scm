@@ -101,7 +101,6 @@
 [ "(" ")" "[" "]" "{" "}"] @punctuation.bracket
 
 (string_literal) @string
-(string_literal) @spell
 (system_lib_string) @string
 
 (null) @constant.builtin
@@ -149,7 +148,6 @@
 
 
 (comment) @comment
-(comment) @spell
 
 ;; Parameters
 (parameter_declaration

@@ -22,21 +22,19 @@ typedef struct {
   bool save_VIsual_active;        ///< saved VIsual_active
 } aco_save_T;
 
-typedef struct AutoCmd_S AutoCmd;
-struct AutoCmd_S {
+typedef struct AutoCmd {
   AucmdExecutable exec;
   bool once;                            // "One shot": removed after execution
   bool nested;                          // If autocommands nest here
   bool last;                            // last command in list
   int64_t id;                           // ID used for uniquely tracking an autocmd.
-  sctx_T script_ctx;                    // script context where it is defined
+  sctx_T script_ctx;                    // script context where defined
   char *desc;                           // Description for the autocmd.
-  AutoCmd *next;                        // Next AutoCmd in list
-};
+  struct AutoCmd *next;                 // Next AutoCmd in list
+} AutoCmd;
 
-typedef struct AutoPat_S AutoPat;
-struct AutoPat_S {
-  AutoPat *next;                        // next AutoPat in AutoPat list; MUST
+typedef struct AutoPat {
+  struct AutoPat *next;                 // next AutoPat in AutoPat list; MUST
                                         // be the first entry
   char *pat;                            // pattern as typed (NULL when pattern
                                         // has been removed)
@@ -47,11 +45,10 @@ struct AutoPat_S {
   int buflocal_nr;                      // !=0 for buffer-local AutoPat
   char allow_dirs;                      // Pattern may match whole path
   char last;                            // last pattern for apply_autocmds()
-};
+} AutoPat;
 
 /// Struct used to keep status while executing autocommands for an event.
-typedef struct AutoPatCmd_S AutoPatCmd;
-struct AutoPatCmd_S {
+typedef struct AutoPatCmd {
   AutoPat *curpat;          // next AutoPat to examine
   AutoCmd *nextcmd;         // next AutoCmd to execute
   int group;                // group being used
@@ -59,11 +56,10 @@ struct AutoPatCmd_S {
   char *sfname;             // sfname to match with
   char *tail;               // tail of fname
   event_T event;            // current event
-  sctx_T script_ctx;        // script context where it is defined
   int arg_bufnr;            // initially equal to <abuf>, set to zero when buf is deleted
   Object *data;             // arbitrary data
-  AutoPatCmd *next;         // chain of active apc-s for auto-invalidation
-};
+  struct AutoPatCmd *next;  // chain of active apc-s for auto-invalidation
+} AutoPatCmd;
 
 // Set by the apply_autocmds_group function if the given event is equal to
 // EVENT_FILETYPE. Used by the readfile function in order to determine if

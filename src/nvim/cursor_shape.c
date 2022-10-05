@@ -43,45 +43,43 @@ cursorentry_T shape_table[SHAPE_IDX_COUNT] =
 };
 
 /// Converts cursor_shapes into an Array of Dictionaries
-/// @param arena initialized arena where memory will be allocated
-///
 /// @return Array of the form {[ "cursor_shape": ... ], ...}
-Array mode_style_array(Arena *arena)
+Array mode_style_array(void)
 {
-  Array all = arena_array(arena, SHAPE_IDX_COUNT);
+  Array all = ARRAY_DICT_INIT;
 
   for (int i = 0; i < SHAPE_IDX_COUNT; i++) {
+    Dictionary dic = ARRAY_DICT_INIT;
     cursorentry_T *cur = &shape_table[i];
-    Dictionary dic = arena_dict(arena, 3 + ((cur->used_for & SHAPE_CURSOR) ? 9 : 0));
-    PUT_C(dic, "name", STRING_OBJ(cstr_as_string(cur->full_name)));
-    PUT_C(dic, "short_name", STRING_OBJ(cstr_as_string(cur->name)));
     if (cur->used_for & SHAPE_MOUSE) {
-      PUT_C(dic, "mouse_shape", INTEGER_OBJ(cur->mshape));
+      PUT(dic, "mouse_shape", INTEGER_OBJ(cur->mshape));
     }
     if (cur->used_for & SHAPE_CURSOR) {
       String shape_str;
       switch (cur->shape) {
       case SHAPE_BLOCK:
-        shape_str = cstr_as_string("block"); break;
+        shape_str = cstr_to_string("block"); break;
       case SHAPE_VER:
-        shape_str = cstr_as_string("vertical"); break;
+        shape_str = cstr_to_string("vertical"); break;
       case SHAPE_HOR:
-        shape_str = cstr_as_string("horizontal"); break;
+        shape_str = cstr_to_string("horizontal"); break;
       default:
-        shape_str = cstr_as_string("unknown");
+        shape_str = cstr_to_string("unknown");
       }
-      PUT_C(dic, "cursor_shape", STRING_OBJ(shape_str));
-      PUT_C(dic, "cell_percentage", INTEGER_OBJ(cur->percentage));
-      PUT_C(dic, "blinkwait", INTEGER_OBJ(cur->blinkwait));
-      PUT_C(dic, "blinkon", INTEGER_OBJ(cur->blinkon));
-      PUT_C(dic, "blinkoff", INTEGER_OBJ(cur->blinkoff));
-      PUT_C(dic, "hl_id", INTEGER_OBJ(cur->id));
-      PUT_C(dic, "id_lm", INTEGER_OBJ(cur->id_lm));
-      PUT_C(dic, "attr_id", INTEGER_OBJ(cur->id ? syn_id2attr(cur->id) : 0));
-      PUT_C(dic, "attr_id_lm", INTEGER_OBJ(cur->id_lm ? syn_id2attr(cur->id_lm) : 0));
+      PUT(dic, "cursor_shape", STRING_OBJ(shape_str));
+      PUT(dic, "cell_percentage", INTEGER_OBJ(cur->percentage));
+      PUT(dic, "blinkwait", INTEGER_OBJ(cur->blinkwait));
+      PUT(dic, "blinkon", INTEGER_OBJ(cur->blinkon));
+      PUT(dic, "blinkoff", INTEGER_OBJ(cur->blinkoff));
+      PUT(dic, "hl_id", INTEGER_OBJ(cur->id));
+      PUT(dic, "id_lm", INTEGER_OBJ(cur->id_lm));
+      PUT(dic, "attr_id", INTEGER_OBJ(cur->id ? syn_id2attr(cur->id) : 0));
+      PUT(dic, "attr_id_lm", INTEGER_OBJ(cur->id_lm ? syn_id2attr(cur->id_lm) : 0));
     }
+    PUT(dic, "name", STRING_OBJ(cstr_to_string(cur->full_name)));
+    PUT(dic, "short_name", STRING_OBJ(cstr_to_string(cur->name)));
 
-    ADD_C(all, DICTIONARY_OBJ(dic));
+    ADD(all, DICTIONARY_OBJ(dic));
   }
 
   return all;
@@ -120,7 +118,7 @@ char *parse_shape_opt(int what)
       }
     }
     // Repeat for all comma separated parts.
-    char *modep = p_guicursor;
+    char *modep = (char *)p_guicursor;
     while (modep != NULL && *modep != NUL) {
       colonp = vim_strchr(modep, ':');
       commap = vim_strchr(modep, ',');
@@ -189,7 +187,7 @@ char *parse_shape_opt(int what)
               if (!ascii_isdigit(*p)) {
                 return N_("E548: digit expected");
               }
-              int n = getdigits_int(&p, false, 0);
+              int n = getdigits_int((char_u **)&p, false, 0);
               if (len == 3) {               // "ver" or "hor"
                 if (n == 0) {
                   return N_("E549: Illegal percentage");
@@ -220,7 +218,7 @@ char *parse_shape_opt(int what)
               endp = vim_strchr(p, '-');
               if (commap == NULL) {                       // last part
                 if (endp == NULL) {
-                  endp = p + strlen(p);                  // find end of part
+                  endp = p + STRLEN(p);                  // find end of part
                 }
               } else if (endp > commap || endp == NULL) {
                 endp = commap;

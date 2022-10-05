@@ -185,9 +185,7 @@ func Test_str2nr()
 
   call assert_fails('call str2nr([])', 'E730:')
   call assert_fails('call str2nr({->2})', 'E729:')
-  if has('float')
-    call assert_fails('call str2nr(1.2)', 'E806:')
-  endif
+  call assert_fails('call str2nr(1.2)', 'E806:')
   call assert_fails('call str2nr(10, [])', 'E474:')
 endfunc
 
@@ -327,18 +325,11 @@ func Test_simplify()
   call assert_equal('./file',      simplify('./dir/../file'))
   call assert_equal('../dir/file', simplify('dir/../../dir/file'))
   call assert_equal('./file',      simplify('dir/.././file'))
-  call assert_equal('../dir',      simplify('./../dir'))
-  call assert_equal('..',          simplify('../testdir/..'))
-  call mkdir('Xdir')
-  call assert_equal('.',           simplify('Xdir/../.'))
-  call delete('Xdir', 'd')
 
   call assert_fails('call simplify({->0})', 'E729:')
   call assert_fails('call simplify([])', 'E730:')
   call assert_fails('call simplify({})', 'E731:')
-  if has('float')
-    call assert_fails('call simplify(1.2)', 'E806:')
-  endif
+  call assert_fails('call simplify(1.2)', 'E806:')
 endfunc
 
 func Test_pathshorten()
@@ -547,7 +538,6 @@ func Save_mode()
   return ''
 endfunc
 
-" Test for the mode() function
 func Test_mode()
   new
   call append(0, ["Blue Ball Black", "Brown Band Bowl", ""])
@@ -718,8 +708,6 @@ func Test_mode()
   call assert_equal('c-c', g:current_modes)
   call feedkeys("gQecho \<C-R>=Save_mode()\<CR>\<CR>vi\<CR>", 'xt')
   call assert_equal('c-cv', g:current_modes)
-  " call feedkeys("Qcall Save_mode()\<CR>vi\<CR>", 'xt')
-  " call assert_equal('c-ce', g:current_modes)
   " How to test Ex mode?
 
   " Test mode in operatorfunc (it used to be Operator-pending).
@@ -1192,55 +1180,6 @@ func Test_col()
   bw!
 endfunc
 
-" Test for input()
-func Test_input_func()
-  " Test for prompt with multiple lines
-  redir => v
-  call feedkeys(":let c = input(\"A\\nB\\nC\\n? \")\<CR>B\<CR>", 'xt')
-  redir END
-  call assert_equal("B", c)
-  call assert_equal(['A', 'B', 'C'], split(v, "\n"))
-
-  " Test for default value
-  call feedkeys(":let c = input('color? ', 'red')\<CR>\<CR>", 'xt')
-  call assert_equal('red', c)
-
-  " Test for completion at the input prompt
-  func! Tcomplete(arglead, cmdline, pos)
-    return "item1\nitem2\nitem3"
-  endfunc
-  call feedkeys(":let c = input('Q? ', '', 'custom,Tcomplete')\<CR>"
-        \ .. "\<C-A>\<CR>", 'xt')
-  delfunc Tcomplete
-  call assert_equal('item1 item2 item3', c)
-
-  " Test for using special characters as default input
-  call feedkeys(":let c = input('name? ', \"x\\<BS>y\")\<CR>\<CR>", 'xt')
-  call assert_equal('y', c)
-
-  " Test for using text with composing characters as default input
-  call feedkeys(":let c = input('name? ', \"ã̳\")\<CR>\<CR>", 'xt')
-  call assert_equal('ã̳', c)
-
-  " Test for using <CR> as default input
-  call feedkeys(":let c = input('name? ', \"\\<CR>\")\<CR>x\<CR>", 'xt')
-  call assert_equal(' x', c)
-
-  call assert_fails("call input('F:', '', 'invalid')", 'E180:')
-  call assert_fails("call input('F:', '', [])", 'E730:')
-endfunc
-
-" Test for the inputdialog() function
-func Test_inputdialog()
-  CheckNotGui
-
-  call feedkeys(":let v=inputdialog('Q:', 'xx', 'yy')\<CR>\<CR>", 'xt')
-  call assert_equal('xx', v)
-  call feedkeys(":let v=inputdialog('Q:', 'xx', 'yy')\<CR>\<Esc>", 'xt')
-  call assert_equal('yy', v)
-endfunc
-
-" Test for inputlist()
 func Test_inputlist()
   call feedkeys(":let c = inputlist(['Select color:', '1. red', '2. green', '3. blue'])\<cr>1\<cr>", 'tx')
   call assert_equal(1, c)
@@ -1264,23 +1203,6 @@ func Test_inputlist()
   " Cancel after inputting a number
   call feedkeys(":let c = inputlist(['Select color:', '1. red', '2. green', '3. blue'])\<cr>5q", 'tx')
   call assert_equal(0, c)
-
-  " Use backspace to delete characters in the prompt
-  call feedkeys(":let c = inputlist(['Select color:', '1. red', '2. green', '3. blue'])\<cr>1\<BS>3\<BS>2\<cr>", 'tx')
-  call assert_equal(2, c)
-
-  " Use mouse to make a selection
-  " call test_setmouse(&lines - 3, 2)
-  call nvim_input_mouse('left', 'press', '', 0, &lines - 4, 1) " set mouse position
-  call getchar() " discard mouse event but keep mouse position
-  call feedkeys(":let c = inputlist(['Select color:', '1. red', '2. green', '3. blue'])\<cr>\<LeftMouse>", 'tx')
-  call assert_equal(1, c)
-  " Mouse click outside of the list
-  " call test_setmouse(&lines - 6, 2)
-  call nvim_input_mouse('left', 'press', '', 0, &lines - 7, 1) " set mouse position
-  call getchar() " discard mouse event but keep mouse position
-  call feedkeys(":let c = inputlist(['Select color:', '1. red', '2. green', '3. blue'])\<cr>\<LeftMouse>", 'tx')
-  call assert_equal(-2, c)
 
   call assert_fails('call inputlist("")', 'E686:')
 endfunc
@@ -1420,15 +1342,12 @@ func Test_trim()
   call assert_equal("vim", trim("  vim  ", " ", 0))
   call assert_equal("vim  ", trim("  vim  ", " ", 1))
   call assert_equal("  vim", trim("  vim  ", " ", 2))
-  call assert_fails('eval trim("  vim  ", " ", [])', 'E745:')
-  call assert_fails('eval trim("  vim  ", " ", -1)', 'E475:')
-  call assert_fails('eval trim("  vim  ", " ", 3)', 'E475:')
-  call assert_fails('eval trim("  vim  ", 0)', 'E475:')
+  call assert_fails('call trim("  vim  ", " ", [])', 'E745:')
+  call assert_fails('call trim("  vim  ", " ", -1)', 'E475:')
+  call assert_fails('call trim("  vim  ", " ", 3)', 'E475:')
 
   let chars = join(map(range(1, 0x20) + [0xa0], {n -> n->nr2char()}), '')
   call assert_equal("x", trim(chars . "x" . chars))
-
-  call assert_fails('let c=trim([])', 'E730:')
 endfunc
 
 " Test for reg_recording() and reg_executing()
@@ -1700,63 +1619,6 @@ func Test_platform_name()
   endif
 endfunc
 
-" Test confirm({msg} [, {choices} [, {default} [, {type}]]])
-func Test_confirm()
-  " requires a UI to be active
-  throw 'Skipped: use test/functional/vimscript/input_spec.lua'
-  if !has('unix') || has('gui_running')
-    return
-  endif
-
-  call feedkeys('o', 'L')
-  let a = confirm('Press O to proceed')
-  call assert_equal(1, a)
-
-  call feedkeys('y', 'L')
-  let a = 'Are you sure?'->confirm("&Yes\n&No")
-  call assert_equal(1, a)
-
-  call feedkeys('n', 'L')
-  let a = confirm('Are you sure?', "&Yes\n&No")
-  call assert_equal(2, a)
-
-  " confirm() should return 0 when pressing CTRL-C.
-  call feedkeys("\<C-c>", 'L')
-  let a = confirm('Are you sure?', "&Yes\n&No")
-  call assert_equal(0, a)
-
-  " <Esc> requires another character to avoid it being seen as the start of an
-  " escape sequence.  Zero should be harmless.
-  eval "\<Esc>0"->feedkeys('L')
-  let a = confirm('Are you sure?', "&Yes\n&No")
-  call assert_equal(0, a)
-
-  " Default choice is returned when pressing <CR>.
-  call feedkeys("\<CR>", 'L')
-  let a = confirm('Are you sure?', "&Yes\n&No")
-  call assert_equal(1, a)
-
-  call feedkeys("\<CR>", 'L')
-  let a = confirm('Are you sure?', "&Yes\n&No", 2)
-  call assert_equal(2, a)
-
-  call feedkeys("\<CR>", 'L')
-  let a = confirm('Are you sure?', "&Yes\n&No", 0)
-  call assert_equal(0, a)
-
-  " Test with the {type} 4th argument
-  for type in ['Error', 'Question', 'Info', 'Warning', 'Generic']
-    call feedkeys('y', 'L')
-    let a = confirm('Are you sure?', "&Yes\n&No\n", 1, type)
-    call assert_equal(1, a)
-  endfor
-
-  call assert_fails('call confirm([])', 'E730:')
-  call assert_fails('call confirm("Are you sure?", [])', 'E730:')
-  call assert_fails('call confirm("Are you sure?", "&Yes\n&No\n", [])', 'E745:')
-  call assert_fails('call confirm("Are you sure?", "&Yes\n&No\n", 0, [])', 'E730:')
-endfunc
-
 func Test_readdir()
   call mkdir('Xdir')
   call writefile([], 'Xdir/foo.txt')
@@ -1784,7 +1646,7 @@ func Test_readdir()
   let files = readdir('Xdir', {x -> len(add(l, x)) == 2 ? -1 : 1})
   call assert_equal(1, len(files))
 
-  eval 'Xdir'->delete('rf')
+  call delete('Xdir', 'rf')
 endfunc
 
 func Test_delete_rf()
@@ -1827,16 +1689,6 @@ endfunc
 
 func Test_char2nr()
   call assert_equal(12354, char2nr('あ', 1))
-  call assert_equal(120, 'x'->char2nr())
-endfunc
-
-func Test_charclass()
-  call assert_equal(0, charclass(' '))
-  call assert_equal(1, charclass('.'))
-  call assert_equal(2, charclass('x'))
-  call assert_equal(3, charclass("\u203c"))
-  " this used to crash vim
-  call assert_equal(0, "xxx"[-1]->charclass())
 endfunc
 
 func Test_eventhandler()
@@ -1880,22 +1732,6 @@ func Test_bufadd_bufload()
   exe 'bwipe ' .. buf2
   call assert_equal(0, bufexists(buf2))
 
-  " When 'buftype' is "nofile" then bufload() does not read the file.
-  " Other values too.
-  for val in [['nofile', 0],
-            \ ['nowrite', 1],
-            \ ['acwrite', 1],
-            \ ['quickfix', 0],
-            \ ['help', 1],
-            \ ['prompt', 0],
-            \ ]
-    bwipe! XotherName
-    let buf = bufadd('XotherName')
-    call setbufvar(buf, '&bt', val[0])
-    call bufload(buf)
-    call assert_equal(val[1] ? ['some', 'text'] : [''], getbufline(buf, 1, '$'), val[0])
-  endfor
-
   bwipe someName
   bwipe XotherName
   call assert_equal(0, bufexists('someName'))
@@ -1905,32 +1741,6 @@ endfunc
 " Test for the eval() function
 func Test_eval()
   call assert_fails("call eval('5 a')", 'E488:')
-endfunc
-
-" Test for the keytrans() function
-func Test_keytrans()
-  call assert_equal('<Space>', keytrans(' '))
-  call assert_equal('<lt>', keytrans('<'))
-  call assert_equal('<lt>Tab>', keytrans('<Tab>'))
-  call assert_equal('<Tab>', keytrans("\<Tab>"))
-  call assert_equal('<C-V>', keytrans("\<C-V>"))
-  call assert_equal('<BS>', keytrans("\<BS>"))
-  call assert_equal('<Home>', keytrans("\<Home>"))
-  call assert_equal('<C-Home>', keytrans("\<C-Home>"))
-  call assert_equal('<M-Home>', keytrans("\<M-Home>"))
-  call assert_equal('<C-Space>', keytrans("\<C-Space>"))
-  call assert_equal('<M-Space>', keytrans("\<*M-Space>"))
-  call assert_equal('<M-x>', "\<*M-x>"->keytrans())
-  call assert_equal('<C-I>', "\<*C-I>"->keytrans())
-  call assert_equal('<S-3>', "\<*S-3>"->keytrans())
-  call assert_equal('π', 'π'->keytrans())
-  call assert_equal('<M-π>', "\<M-π>"->keytrans())
-  call assert_equal('ě', 'ě'->keytrans())
-  call assert_equal('<M-ě>', "\<M-ě>"->keytrans())
-  call assert_equal('', ''->keytrans())
-  call assert_equal('', v:_null_string->keytrans())
-  call assert_fails('call keytrans(1)', 'E1174:')
-  call assert_fails('call keytrans()', 'E119:')
 endfunc
 
 " Test for the nr2char() function
@@ -2039,27 +1849,6 @@ func Test_getmousepos()
         \ column: 8,
         \ }, getmousepos())
   bwipe!
-endfunc
-
-" Test for glob()
-func Test_glob()
-  call assert_equal('', glob(v:_null_string))
-  call assert_equal('', globpath(v:_null_string, v:_null_string))
-
-  call writefile([], 'Xglob1')
-  call writefile([], 'XGLOB2')
-  set wildignorecase
-  " Sort output of glob() otherwise we end up with different
-  " ordering depending on whether file system is case-sensitive.
-  call assert_equal(['XGLOB2', 'Xglob1'], sort(glob('Xglob[12]', 0, 1)))
-  " wildignorecase shall be applied even when the pattern contains no wildcards.
-  call assert_equal('XGLOB2', glob('xglob2'))
-  set wildignorecase&
-
-  call delete('Xglob1')
-  call delete('XGLOB2')
-
-  call assert_fails("call glob('*', 0, {})", 'E728:')
 endfunc
 
 func HasDefault(msg = 'msg')

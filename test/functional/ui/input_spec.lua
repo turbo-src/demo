@@ -321,14 +321,13 @@ describe('input non-printable chars', function()
   it("doesn't crash when echoing them back", function()
     write_file("Xtest-overwrite", [[foobar]])
     local screen = Screen.new(60,8)
-    screen:set_default_attr_ids {
-      [1] = {bold = true, foreground = Screen.colors.Blue1};
-      [2] = {foreground = Screen.colors.Grey100, background = Screen.colors.Red};
-      [3] = {bold = true, foreground = Screen.colors.SeaGreen4};
-      [4] = {bold = true, reverse = true};
-    }
+    screen:set_default_attr_ids({
+      [1] = {bold = true, foreground = Screen.colors.Blue1},
+      [2] = {foreground = Screen.colors.Grey100, background = Screen.colors.Red},
+      [3] = {bold = true, foreground = Screen.colors.SeaGreen4}
+    })
     screen:attach()
-    command("set shortmess-=F")
+    command("set display-=msgsep shortmess-=F")
 
     feed_command("e Xtest-overwrite")
     screen:expect([[
@@ -347,11 +346,11 @@ describe('input non-printable chars', function()
     write_file("Xtest-overwrite", [[smurf]])
     feed_command("w")
     screen:expect([[
-      foobar                                                      |
       {1:~                                                           }|
       {1:~                                                           }|
       {1:~                                                           }|
-      {4:                                                            }|
+      {1:~                                                           }|
+      {1:~                                                           }|
       "Xtest-overwrite"                                           |
       {2:WARNING: The file has been changed since reading it!!!}      |
       {3:Do you really want to write to it (y/n)?}^                    |
@@ -359,10 +358,10 @@ describe('input non-printable chars', function()
 
     feed("u")
     screen:expect([[
-      foobar                                                      |
       {1:~                                                           }|
       {1:~                                                           }|
-      {4:                                                            }|
+      {1:~                                                           }|
+      {1:~                                                           }|
       "Xtest-overwrite"                                           |
       {2:WARNING: The file has been changed since reading it!!!}      |
       {3:Do you really want to write to it (y/n)?}u                   |
@@ -371,9 +370,9 @@ describe('input non-printable chars', function()
 
     feed("\005")
     screen:expect([[
-      foobar                                                      |
       {1:~                                                           }|
-      {4:                                                            }|
+      {1:~                                                           }|
+      {1:~                                                           }|
       "Xtest-overwrite"                                           |
       {2:WARNING: The file has been changed since reading it!!!}      |
       {3:Do you really want to write to it (y/n)?}u                   |
@@ -383,8 +382,8 @@ describe('input non-printable chars', function()
 
     feed("n")
     screen:expect([[
-      foobar                                                      |
-      {4:                                                            }|
+      {1:~                                                           }|
+      {1:~                                                           }|
       "Xtest-overwrite"                                           |
       {2:WARNING: The file has been changed since reading it!!!}      |
       {3:Do you really want to write to it (y/n)?}u                   |

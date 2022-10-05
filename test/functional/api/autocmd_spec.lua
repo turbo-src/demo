@@ -135,22 +135,17 @@ describe('autocmd api', function()
         local desc = 'Can show description'
         meths.set_var('desc', desc)
 
-        local result = exec_lua([[
+        exec_lua([[
           local callback = function() print 'Should Not Have Errored' end
           vim.api.nvim_create_autocmd("BufReadPost", {
             pattern = "*.py",
             callback = callback,
             desc = vim.g.desc,
           })
-          local aus = vim.api.nvim_get_autocmds({ event = 'BufReadPost' })
-          local first = aus[1]
-          return {
-            desc = first.desc,
-            cbtype = type(first.callback)
-          }
         ]])
 
-        eq({ desc = desc, cbtype = 'function' }, result)
+        eq(desc, meths.get_autocmds({ event = 'BufReadPost' })[1].desc)
+        matches('<lua: %d+>', meths.get_autocmds({ event = 'BufReadPost' })[1].command)
       end)
 
       it('will not add a description unless it was provided', function()
@@ -470,49 +465,6 @@ describe('autocmd api', function()
         -- 3-7 for the 5 we make in the autocmd
         eq({1, 2, 3, 4, 5, 6, 7}, bufs)
       end)
-
-      it('can retrieve a callback from an autocmd', function()
-        local content = 'I Am A Callback'
-        meths.set_var('content', content)
-
-        local result = exec_lua([[
-          local cb = function() return vim.g.content end
-          vim.api.nvim_create_autocmd("User", {
-            pattern = "TestTrigger",
-            desc = "A test autocommand with a callback",
-            callback = cb,
-          })
-          local aus = vim.api.nvim_get_autocmds({ event = 'User', pattern = 'TestTrigger'})
-          local first = aus[1]
-          return {
-            cb = {
-              type = type(first.callback),
-              can_retrieve = first.callback() == vim.g.content
-            }
-          }
-        ]])
-
-        eq("function", result.cb.type)
-        eq(true, result.cb.can_retrieve)
-      end)
-
-      it('will return an empty string as the command for an autocmd that uses a callback', function()
-        local result = exec_lua([[
-          local callback = function() print 'I Am A Callback' end
-          vim.api.nvim_create_autocmd("BufWritePost", {
-            pattern = "*.py",
-            callback = callback,
-          })
-          local aus = vim.api.nvim_get_autocmds({ event = 'BufWritePost' })
-          local first = aus[1]
-          return {
-            command = first.command,
-            cbtype = type(first.callback)
-          }
-        ]])
-
-        eq({ command = "", cbtype = 'function' }, result)
-      end)
     end)
 
     describe('groups', function()
@@ -686,26 +638,6 @@ describe('autocmd api', function()
       eq(true, meths.get_var("autocmd_executed"))
     end)
 
-    it("can trigger multiple patterns", function()
-      meths.set_var("autocmd_executed", 0)
-
-      meths.create_autocmd("BufReadPost", {
-        pattern = "*",
-        command = "let g:autocmd_executed += 1",
-      })
-
-      meths.exec_autocmds("BufReadPost", { pattern = { "*.lua", "*.vim" } })
-      eq(2, meths.get_var("autocmd_executed"))
-
-      meths.create_autocmd("BufReadPre", {
-        pattern = { "bar", "foo" },
-        command = "let g:autocmd_executed += 10",
-      })
-
-      meths.exec_autocmds("BufReadPre", { pattern = { "foo", "bar", "baz", "frederick" }})
-      eq(22, meths.get_var("autocmd_executed"))
-    end)
-
     it("can pass the buffer", function()
       meths.set_var("buffer_executed", -1)
       eq(-1, meths.get_var("buffer_executed"))
@@ -762,7 +694,7 @@ describe('autocmd api', function()
       meths.exec_autocmds("CursorHoldI", { buffer = 1 })
       eq('none', meths.get_var("filename_executed"))
 
-      meths.exec_autocmds("CursorHoldI", { buffer = meths.get_current_buf() })
+      meths.exec_autocmds("CursorHoldI", { buffer = tonumber(meths.get_current_buf()) })
       eq('__init__.py', meths.get_var("filename_executed"))
 
       -- Reset filename

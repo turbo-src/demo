@@ -30,9 +30,6 @@ describe('decorations providers', function()
       [11] = {foreground = Screen.colors.Red, background = tonumber('0x005028')};
       [12] = {foreground = tonumber('0x990000')};
       [13] = {background = Screen.colors.LightBlue};
-      [14] = {background = Screen.colors.WebGray, foreground = Screen.colors.DarkBlue};
-      [15] = {special = Screen.colors.Blue1, undercurl = true},
-      [16] = {special = Screen.colors.Red, undercurl = true},
     }
   end)
 
@@ -58,7 +55,7 @@ describe('decorations providers', function()
       a.nvim_set_decoration_provider(_G.ns1, {
         on_start = on_do; on_buf = on_do;
         on_win = on_do; on_line = on_do;
-        on_end = on_do; _on_spell_nav = on_do;
+        on_end = on_do;
       })
       return _G.ns1
     ]])
@@ -97,7 +94,7 @@ describe('decorations providers', function()
                                               |
     ]]}
     check_trace {
-      { "start", 4 };
+      { "start", 4, 40 };
       { "win", 1000, 1, 0, 8 };
       { "line", 1000, 1, 0 };
       { "line", 1000, 1, 1 };
@@ -121,7 +118,7 @@ describe('decorations providers', function()
                                               |
     ]]}
     check_trace {
-      { "start", 5 };
+      { "start", 5, 10 };
       { "buf", 1 };
       { "win", 1000, 1, 0, 8 };
       { "line", 1000, 1, 6 };
@@ -155,84 +152,6 @@ describe('decorations providers', function()
       posp {2:=} getmark(mark, false);            |
       restor{2:e}_buffer(&save_buf);^              |
                                               |
-    ]]}
-  end)
-
-  it('can indicate spellchecked points', function()
-    exec [[
-    set spell
-    set spelloptions=noplainbuffer
-    syntax off
-    ]]
-
-    insert [[
-    I am well written text.
-    i am not capitalized.
-    I am a speling mistakke.
-    ]]
-
-    setup_provider [[
-      local ns = a.nvim_create_namespace "spell"
-      beamtrace = {}
-      local function on_do(kind, ...)
-        if kind == 'win' or kind == 'spell' then
-          a.nvim_buf_set_extmark(0, ns, 0, 0, { end_row = 2, end_col = 23, spell = true, ephemeral = true })
-        end
-        table.insert(beamtrace, {kind, ...})
-      end
-    ]]
-
-    check_trace {
-      { "start", 5 };
-      { "win", 1000, 1, 0, 5 };
-      { "line", 1000, 1, 0 };
-      { "line", 1000, 1, 1 };
-      { "line", 1000, 1, 2 };
-      { "line", 1000, 1, 3 };
-      { "end", 5 };
-    }
-
-    feed "gg0"
-
-    screen:expect{grid=[[
-    ^I am well written text.                 |
-    {15:i} am not capitalized.                   |
-    I am a {16:speling} {16:mistakke}.                |
-                                            |
-    {1:~                                       }|
-    {1:~                                       }|
-    {1:~                                       }|
-                                            |
-    ]]}
-
-    feed "]s"
-    check_trace {
-      { "spell", 1000, 1, 1, 0, 1, -1 };
-    }
-    screen:expect{grid=[[
-    I am well written text.                 |
-    {15:^i} am not capitalized.                   |
-    I am a {16:speling} {16:mistakke}.                |
-                                            |
-    {1:~                                       }|
-    {1:~                                       }|
-    {1:~                                       }|
-                                            |
-    ]]}
-
-    feed "]s"
-    check_trace {
-      { "spell", 1000, 1, 2, 7, 2, -1 };
-    }
-    screen:expect{grid=[[
-    I am well written text.                 |
-    {15:i} am not capitalized.                   |
-    I am a {16:^speling} {16:mistakke}.                |
-                                            |
-    {1:~                                       }|
-    {1:~                                       }|
-    {1:~                                       }|
-                                            |
     ]]}
   end)
 
@@ -273,7 +192,7 @@ describe('decorations providers', function()
                                               |
     ]]}
 
-    meths.set_hl_ns(ns1)
+    meths._set_hl_ns(ns1)
     screen:expect{grid=[[
       {10:  1 }{11:// just to see if there was an accid}|
       {10:    }{11:ent}                                 |
@@ -299,7 +218,7 @@ describe('decorations providers', function()
       local ns2 = a.nvim_create_namespace 'ns2'
       a.nvim_set_decoration_provider (ns2, {
         on_win = function (_, win, buf)
-          a.nvim_set_hl_ns_fast(win == thewin and _G.ns1 or ns2)
+          a.nvim__set_hl_ns(win == thewin and _G.ns1 or ns2)
         end;
       })
     ]]
@@ -346,7 +265,7 @@ describe('decorations providers', function()
     ]]}
 
     meths.set_hl(ns1, 'LinkGroup', {fg = 'Blue'})
-    meths.set_hl_ns(ns1)
+    meths._set_hl_ns(ns1)
 
     screen:expect{grid=[[
       // just to see if there was an accident |
@@ -382,7 +301,7 @@ describe('decorations providers', function()
     ]]}
 
     meths.set_hl(ns1, 'LinkGroup', {fg = 'Blue', default=true})
-    meths.set_hl_ns(ns1)
+    meths._set_hl_ns(ns1)
     feed 'k'
 
     screen:expect{grid=[[
@@ -485,50 +404,6 @@ describe('decorations providers', function()
                                               |
     ]]}
   end)
-
-  it('can create and remove signs when CursorMoved autocommand validates botline #18661', function()
-    exec_lua([[
-      local lines = {}
-      for i = 1, 200 do
-        lines[i] = 'hello' .. tostring(i)
-      end
-      vim.api.nvim_buf_set_lines(0, 0, -1, false, lines)
-    ]])
-    setup_provider([[
-      local function on_do(kind, winid, bufnr, topline, botline_guess)
-        if kind == 'win' then
-          if topline < 100 and botline_guess > 100 then
-            vim.api.nvim_buf_set_extmark(bufnr, ns1, 99, -1, { sign_text = 'X' })
-          else
-            vim.api.nvim_buf_clear_namespace(bufnr, ns1, 0, -1)
-          end
-        end
-      end
-    ]])
-    command([[autocmd CursorMoved * call line('w$')]])
-    meths.win_set_cursor(0, {100, 0})
-    screen:expect([[
-      {14:  }hello97                               |
-      {14:  }hello98                               |
-      {14:  }hello99                               |
-      X ^hello100                              |
-      {14:  }hello101                              |
-      {14:  }hello102                              |
-      {14:  }hello103                              |
-                                              |
-    ]])
-    meths.win_set_cursor(0, {1, 0})
-    screen:expect([[
-      ^hello1                                  |
-      hello2                                  |
-      hello3                                  |
-      hello4                                  |
-      hello5                                  |
-      hello6                                  |
-      hello7                                  |
-                                              |
-    ]])
-  end)
 end)
 
 describe('extmark decorations', function()
@@ -563,7 +438,6 @@ describe('extmark decorations', function()
       [23] = {foreground = Screen.colors.Magenta1, background = Screen.colors.LightGrey};
       [24] = {bold = true};
       [25] = {background = Screen.colors.LightRed};
-      [26] = {background=Screen.colors.DarkGrey, foreground=Screen.colors.LightGrey};
     }
 
     ns = meths.create_namespace 'test'
@@ -944,20 +818,6 @@ end]]
                                                         |
     ]]}
     helpers.assert_alive()
-  end)
-
-  it('conceal #19007', function()
-    screen:try_resize(50, 5)
-    insert('foo\n')
-    command('let &conceallevel=2')
-    meths.buf_set_extmark(0, ns, 0, 0, {end_col=0, end_row=2, conceal='X'})
-    screen:expect([[
-        {26:X}                                                 |
-        ^                                                  |
-        {1:~                                                 }|
-        {1:~                                                 }|
-                                                          |
-      ]])
   end)
 end)
 
@@ -1761,7 +1621,7 @@ l5
 
     screen:expect{grid=[[
       S4S1^l1                                            |
-      x S2l2                                            |
+      S2x l2                                            |
       S5{1:  }l3                                            |
       {1:    }l4                                            |
       {1:    }l5                                            |
@@ -1859,34 +1719,6 @@ l5
     ]]}
   end)
 
-  it('works with priority #19716', function()
-    screen:try_resize(20, 3)
-    insert(example_text)
-    feed 'gg'
-
-    helpers.command('sign define Oldsign text=O3')
-    helpers.command([[exe 'sign place 42 line=1 name=Oldsign priority=10 buffer=' . bufnr('')]])
-
-    meths.buf_set_extmark(0, ns, 0, -1, {sign_text='S4', priority=100})
-    meths.buf_set_extmark(0, ns, 0, -1, {sign_text='S2', priority=5})
-    meths.buf_set_extmark(0, ns, 0, -1, {sign_text='S5', priority=200})
-    meths.buf_set_extmark(0, ns, 0, -1, {sign_text='S1', priority=1})
-
-    screen:expect{grid=[[
-      S1S2O3S4S5^l1        |
-      {1:          }l2        |
-                          |
-    ]]}
-
-    -- Check truncation works too
-    meths.win_set_option(0, 'signcolumn', 'auto')
-
-    screen:expect{grid=[[
-      S5^l1                |
-      {1:  }l2                |
-                          |
-    ]]}
-  end)
 end)
 
 describe('decorations: virt_text', function()

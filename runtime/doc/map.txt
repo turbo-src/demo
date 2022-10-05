@@ -48,7 +48,6 @@ modes.
 			allows for nested and recursive use of mappings.
 			Note: Trailing spaces are included in the {rhs},
 			because space is a valid Normal mode command.
-			See |map-trailing-white|.
 
 						*:nore* *:norem*
 :no[remap]  {lhs} {rhs}		|mapmode-nvo|	*:no*  *:noremap* *:nor*
@@ -86,8 +85,10 @@ modes.
 			for other modes where it applies.
 			It also works when {lhs} matches the {rhs} of a
 			mapping. This is for when an abbreviation applied.
-			Note: Trailing spaces are included in the {lhs}.
-			See |map-trailing-white|.
+			Note: Trailing spaces are included in the {lhs}.  This
+			unmap does NOT work: >
+				:map @@ foo
+				:unmap @@ | print
 
 :mapc[lear]			|mapmode-nvo|		*:mapc*   *:mapclear*
 :nmapc[lear]			|mapmode-n|		*:nmapc*  *:nmapclear*
@@ -151,24 +152,6 @@ that mapping won't get expanded yet, Vim is waiting for another character.
 If you type a space, then "foo" will get inserted, plus the space.  If you
 type "a", then "bar" will get inserted.
 
-Trailing white space ~
-							*map-trailing-white*
-This unmap command does NOT work: >
-	:map @@ foo
-	:unmap @@ | print
-
-Because it tries to unmap "@@ ", including the white space before the command
-separator "|".  Other examples with trailing white space: >
-	unmap @@ 
-	unmap @@     " comment
-
-An error will be issued, which is very hard to identify, because the ending
-whitespace character in `unmap @@ ` is not visible.
-
-A generic solution is to put the command separator "|" right after the mapped
-keys.  After that white space and a comment may follow: >
-	unmap @@|    " comment
-
 
 1.2 SPECIAL ARGUMENTS					*:map-arguments*
 
@@ -176,8 +159,7 @@ keys.  After that white space and a comment may follow: >
 "<unique>" can be used in any order.  They must appear right after the
 command, before any other arguments.
 
-					*:map-local* *:map-<buffer>* *:map-buffer*
-					*E224* *E225*
+			*:map-local* *:map-<buffer>* *:map-buffer* *E224* *E225*
 If the first argument to one of these commands is "<buffer>" the mapping will
 be effective in the current buffer only.  Example: >
 	:map <buffer>  ,w  /[.,;]<CR>
@@ -346,6 +328,8 @@ Note:
   mapping is recursive.
 - In Visual mode  you can use `line('v')` and `col('v')` to get one end of the
   Visual area, the cursor is at the other end.
+- In select-mode, |:map| and |:vmap| command mappings are executed in
+  visual-mode.  Use |:smap| to handle select-mode.
 
 							*E5520*
 <Cmd> commands must terminate, that is, they must be followed by <CR> in the
@@ -610,20 +594,19 @@ two bytes 0xc3 0xa1.  You don't want the 0xc3 byte to be mapped then or
 otherwise it would be impossible to type the á character.
 
 					*<Leader>* *mapleader*
-To define a mapping which uses the "g:mapleader" variable, the special string
-"<Leader>" can be used.  It is replaced with the string value of
-"g:mapleader".  If "g:mapleader" is not set or empty, a backslash is used
-instead.  Example: >
-	map <Leader>A  oanother line<Esc>
+To define a mapping which uses the "mapleader" variable, the special string
+"<Leader>" can be used.  It is replaced with the string value of "mapleader".
+If "mapleader" is not set or empty, a backslash is used instead.  Example: >
+	:map <Leader>A  oanother line<Esc>
 Works like: >
-	map \A  oanother line<Esc>
-But after:
-	let mapleader = ","
+	:map \A  oanother line<Esc>
+But after: >
+	:let mapleader = ","
 It works like: >
-	map ,A  oanother line<Esc>
+	:map ,A  oanother line<Esc>
 
-Note that the value of "g:mapleader" is used at the moment the mapping is
-defined.  Changing "g:mapleader" after that has no effect for already defined
+Note that the value of "mapleader" is used at the moment the mapping is
+defined.  Changing "mapleader" after that has no effect for already defined
 mappings.
 
 					*<LocalLeader>* *maplocalleader*
@@ -904,17 +887,6 @@ or `unnamedplus`.
 
 The `mode()` function will return the state as it will be after applying the
 operator.
-
-Here is an example for using a lambda function to create a normal-mode
-operator to add quotes around text in the current line: >
-
-	nnoremap <F4> <Cmd>let &opfunc='{t ->
-				\ getline(".")
-				\ ->split("\\zs")
-				\ ->insert("\"", col("'']"))
-				\ ->insert("\"", col("''[") - 1)
-				\ ->join("")
-				\ ->setline(".")}'<CR>g@
 
 ==============================================================================
 2. Abbreviations			*abbreviations* *Abbreviations*
@@ -1458,120 +1430,6 @@ Possible values are (second column is the short name used in listing):
     -addr=other		  ?	other kind of range
 
 
-Incremental preview ~
-                                                  *:command-preview* {nvim-api}
-Commands can show an 'inccommand' (as-you-type) preview by defining a preview
-handler (only from Lua, see |nvim_create_user_command()|).
-
-Before the preview callback is executed, Nvim will temporarily disable
-'cursorline' and 'cursorcolumn' to avoid highlighting issues.
-
-The preview callback must be a Lua function with this signature: >
-
-    function cmdpreview(opts, ns, buf)
-<
-where "opts" has the same form as that given to |nvim_create_user_command()|
-callbacks, "ns" is the preview namespace id for highlights, and "buf" is the
-buffer that your preview routine will directly modify to show the previewed
-results (for "inccommand=split", or nil for  "inccommand=nosplit").
-
-Your command preview routine must implement this protocol:
-
-1. Modify the target buffers as required for the preview (see
-   |nvim_buf_set_text()| and |nvim_buf_set_lines()|).
-2. If preview buffer is provided, add necessary text to the preview buffer.
-3. Add required highlights to the target buffers. If preview buffer is
-   provided, add required highlights to the preview buffer as well. All
-   highlights must be added to the preview namespace which is provided as an
-   argument to the preview callback (see |nvim_buf_add_highlight()| and
-   |nvim_buf_set_extmark()| for help on how to add highlights to a namespace).
-4. Return an integer (0, 1, 2) which controls how Nvim behaves as follows:
-   0: No preview is shown.
-   1: Preview is shown without preview window (even with "inccommand=split").
-   2: Preview is shown and preview window is opened (if "inccommand=split").
-      For "inccommand=nosplit" this is the same as 1.
-
-After preview ends, Nvim discards all changes to all buffers made during the
-preview and clears all highlights in the preview namespace.
-
-Here's an example of a command to trim trailing whitespace from lines that
-supports incremental command preview:
->
-	-- If invoked as a preview callback, performs 'inccommand' preview by
-	-- highlighting trailing whitespace in the current buffer.
-	local function trim_space_preview(opts, preview_ns, preview_buf)
-	  local line1 = opts.line1
-	  local line2 = opts.line2
-	  local buf = vim.api.nvim_get_current_buf()
-	  local lines = vim.api.nvim_buf_get_lines(buf, line1 - 1, line2, false)
-	  local preview_buf_line = 0
-
-	  for i, line in ipairs(lines) do
-	    local start_idx, end_idx = string.find(line, '%s+$')
-
-	    if start_idx then
-	      -- Highlight the match
-	      vim.api.nvim_buf_add_highlight(
-	        buf,
-	        preview_ns,
-	        'Substitute',
-	        line1 + i - 2,
-	        start_idx - 1,
-	        end_idx
-	      )
-
-	      -- Add lines and set highlights in the preview buffer
-	      -- if inccommand=split
-	      if preview_buf then
-	        local prefix = string.format('|%d| ', line1 + i - 1)
-
-	        vim.api.nvim_buf_set_lines(
-	          preview_buf,
-	          preview_buf_line,
-	          preview_buf_line,
-	          false,
-	          { prefix .. line }
-	        )
-	        vim.api.nvim_buf_add_highlight(
-	          preview_buf,
-	          preview_ns,
-	          'Substitute',
-	          preview_buf_line,
-	          #prefix + start_idx - 1,
-	          #prefix + end_idx
-	        )
-	        preview_buf_line = preview_buf_line + 1
-	      end
-	    end
-	  end
-
-	  -- Return the value of the preview type
-	  return 2
-	end
-
-	-- Trims all trailing whitespace in the current buffer.
-	local function trim_space(opts)
-	  local line1 = opts.line1
-	  local line2 = opts.line2
-	  local buf = vim.api.nvim_get_current_buf()
-	  local lines = vim.api.nvim_buf_get_lines(buf, line1 - 1, line2, false)
-
-	  local new_lines = {}
-	  for i, line in ipairs(lines) do
-	    new_lines[i] = string.gsub(line, '%s+$', '')
-	  end
-	  vim.api.nvim_buf_set_lines(buf, line1 - 1, line2, false, new_lines)
-	end
-
-	-- Create the user command
-	vim.api.nvim_create_user_command(
-	  'TrimTrailingWhitespace',
-	  trim_space,
-	  { nargs = '?', range = '%', addr = 'lines', preview = trim_space_preview }
-	)
-<
-
-
 Special cases ~
 					*:command-bang* *:command-bar*
 					*:command-register* *:command-buffer*
@@ -1623,12 +1481,12 @@ The valid escape sequences are
 					*<mods>* *<q-mods>* *:command-modifiers*
 	<mods>  The command modifiers, if specified. Otherwise, expands to
 		nothing. Supported modifiers are |:aboveleft|, |:belowright|,
-		|:botright|, |:browse|, |:confirm|, |:hide|, |:horizontal|,
-		|:keepalt|, |:keepjumps|, |:keepmarks|, |:keeppatterns|,
-		|:leftabove|, |:lockmarks|, |:noautocmd|, |:noswapfile|
-		|:rightbelow|, |:sandbox|, |:silent|, |:tab|, |:topleft|,
-		|:unsilent|, |:verbose|, and |:vertical|.
-		Note that |:filter| is not supported.
+		|:botright|, |:browse|, |:confirm|, |:hide|, |:keepalt|,
+		|:keepjumps|, |:keepmarks|, |:keeppatterns|, |:leftabove|,
+		|:lockmarks|, |:noswapfile| |:rightbelow|, |:silent|, |:tab|,
+		|:topleft|, |:verbose|, and |:vertical|.
+		Note that these are not yet supported: |:noautocmd|,
+		|:sandbox| and |:unsilent|.
 		Examples: >
 		    command! -nargs=+ -complete=file MyEdit
 				\ for f in expand(<q-args>, 0, 1) |

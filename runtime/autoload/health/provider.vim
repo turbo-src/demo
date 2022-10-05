@@ -203,7 +203,7 @@ function! s:version_info(python) abort
   let nvim_path = s:trim(s:system([
         \ a:python, '-c',
         \ 'import sys; ' .
-        \ 'sys.path = [p for p in sys.path if p != ""]; ' .
+        \ 'sys.path = list(filter(lambda x: x != "", sys.path)); ' .
         \ 'import neovim; print(neovim.__file__)']))
   if s:shell_error || empty(nvim_path)
     return [python_version, 'unable to load neovim Python module', pypi_version,
@@ -615,10 +615,10 @@ function! s:check_node() abort
     return
   endif
 
-  if !executable('node') || (!executable('npm') && !executable('yarn') && !executable('pnpm'))
+  if !executable('node') || (!executable('npm') && !executable('yarn'))
     call health#report_warn(
-          \ '`node` and `npm` (or `yarn`, `pnpm`) must be in $PATH.',
-          \ ['Install Node.js and verify that `node` and `npm` (or `yarn`, `pnpm`) commands work.'])
+          \ '`node` and `npm` (or `yarn`) must be in $PATH.',
+          \ ['Install Node.js and verify that `node` and `npm` (or `yarn`) commands work.'])
     return
   endif
   let node_v = get(split(s:system(['node', '-v']), "\n"), 0, '')
@@ -634,22 +634,15 @@ function! s:check_node() abort
 
   let [host, err] = provider#node#Detect()
   if empty(host)
-    call health#report_warn('Missing "neovim" npm (or yarn, pnpm) package.',
+    call health#report_warn('Missing "neovim" npm (or yarn) package.',
           \ ['Run in shell: npm install -g neovim',
           \  'Run in shell (if you use yarn): yarn global add neovim',
-          \  'Run in shell (if you use pnpm): pnpm install -g neovim',
           \  'You may disable this provider (and warning) by adding `let g:loaded_node_provider = 0` to your init.vim'])
     return
   endif
   call health#report_info('Nvim node.js host: '. host)
 
-  let manager = 'npm'
-  if executable('yarn')
-    let manager = 'yarn'
-  elseif executable('pnpm')
-    let manager = 'pnpm'
-  endif
-
+  let manager = executable('npm') ? 'npm' : 'yarn'
   let latest_npm_cmd = has('win32') ?
         \ 'cmd /c '. manager .' info neovim --json' :
         \ manager .' info neovim --json'
@@ -680,10 +673,9 @@ function! s:check_node() abort
           \ printf('Package "neovim" is out-of-date. Installed: %s, latest: %s',
           \ current_npm, latest_npm),
           \ ['Run in shell: npm install -g neovim',
-          \  'Run in shell (if you use yarn): yarn global add neovim',
-          \  'Run in shell (if you use pnpm): pnpm install -g neovim'])
+          \  'Run in shell (if you use yarn): yarn global add neovim'])
   else
-    call health#report_ok('Latest "neovim" npm/yarn/pnpm package is installed: '. current_npm)
+    call health#report_ok('Latest "neovim" npm/yarn package is installed: '. current_npm)
   endif
 endfunction
 

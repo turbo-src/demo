@@ -1,7 +1,8 @@
 " Test for pyx* commands and functions with Python 2.
 
-source check.vim
-CheckFeature python
+if !has('python')
+  finish
+endif
 set pyx=2
 
 let s:py2pattern = '^2\.[0-7]\.\d\+'

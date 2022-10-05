@@ -1,8 +1,8 @@
 " Tests for reltime()
 
-source check.vim
-CheckFeature reltime
-CheckFeature float
+if !has('reltime') || !has('float')
+  finish
+endif
 
 func Test_reltime()
   let now = reltime()

@@ -6,6 +6,12 @@
 cmake_minimum_required(VERSION 3.10)
 project(nvim C)
 
+if(POLICY CMP0065)
+  cmake_policy(SET CMP0065 NEW)
+endif()
+if(POLICY CMP0060)
+  cmake_policy(SET CMP0060 NEW)
+endif()
 if(POLICY CMP0075)
   cmake_policy(SET CMP0075 NEW)
 endif()
@@ -15,9 +21,6 @@ list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake")
 
 # We don't support building in-tree.
 include(PreventInTreeBuilds)
-include(Util)
-
-set(TOUCHES_DIR ${PROJECT_BINARY_DIR}/touches)
 
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
@@ -27,7 +30,7 @@ if(DEFINED ENV{DEPS_BUILD_DIR})
     # pkg-config 29.2 has a bug on OpenBSD which causes it to drop any paths that
     # *contain* system include paths. To avoid this, we prefix what would be
     # "/usr/include" as "/_usr/include".
-    # This check is also performed in the cmake.deps/CMakeLists.txt and in the
+    # This check is also performed in the third-party/CMakeLists.txt and in the
     # else clause following here.
     # https://github.com/neovim/neovim/pull/14745#issuecomment-860201794
     set(DEPS_PREFIX "$ENV{DEPS_BUILD_DIR}/_usr" CACHE PATH "Path prefix for finding dependencies")
@@ -59,7 +62,7 @@ else()
         -DCMAKE_C_FLAGS_RELWITHDEBINFO=${CMAKE_C_FLAGS_RELWITHDEBINFO}
         -DCMAKE_C_FLAGS_RELEASE=${CMAKE_C_FLAGS_RELEASE}
         -DCMAKE_MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}
-        ${PROJECT_SOURCE_DIR}/cmake.deps
+        ${PROJECT_SOURCE_DIR}/third-party
       WORKING_DIRECTORY ${DEPS_BUILD_DIR})
     execute_process(
       COMMAND ${CMAKE_COMMAND} --build ${DEPS_BUILD_DIR}
@@ -68,8 +71,13 @@ else()
   endif()
 endif()
 
-list(INSERT CMAKE_PREFIX_PATH 0 ${DEPS_PREFIX})
-set(ENV{PKG_CONFIG_PATH} "$ENV{PKG_CONFIG_PATH}:${DEPS_PREFIX}/lib/pkgconfig")
+if(CMAKE_CROSSCOMPILING AND NOT UNIX)
+  list(INSERT CMAKE_FIND_ROOT_PATH 0 ${DEPS_PREFIX})
+  list(INSERT CMAKE_PREFIX_PATH 0 ${DEPS_PREFIX}/../host/bin)
+else()
+  list(INSERT CMAKE_PREFIX_PATH 0 ${DEPS_PREFIX})
+  set(ENV{PKG_CONFIG_PATH} "$ENV{PKG_CONFIG_PATH}:${DEPS_PREFIX}/lib/pkgconfig")
+endif()
 
 # used for check_c_compiler_flag
 include(CheckCCompilerFlag)
@@ -83,20 +91,10 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
   # them be included as one of the first places to look for dependencies.
   list(APPEND CMAKE_PREFIX_PATH /sw /opt/local)
 
-  # If the macOS deployment target is not set manually (via $MACOSX_DEPLOYMENT_TARGET),
-  # fall back to local system version. Needs to be done both here and in cmake.deps.
-  if(NOT CMAKE_OSX_DEPLOYMENT_TARGET)
-    execute_process(COMMAND sw_vers -productVersion
-                    OUTPUT_VARIABLE MACOS_VERSION
-                    OUTPUT_STRIP_TRAILING_WHITESPACE)
-    set(CMAKE_OSX_DEPLOYMENT_TARGET "${MACOS_VERSION}")
-  endif()
-  message("Using deployment target ${CMAKE_OSX_DEPLOYMENT_TARGET}")
-
   # Work around some old, broken detection by CMake for knowing when to use the
   # isystem flag.  Apple's compilers have supported this for quite some time
   # now.
-  if(CMAKE_C_COMPILER_ID MATCHES "GNU")
+  if(CMAKE_COMPILER_IS_GNUCC)
     set(CMAKE_INCLUDE_SYSTEM_FLAG_C "-isystem ")
   endif()
 endif()
@@ -121,12 +119,22 @@ endif()
 
 message(STATUS "CMAKE_INSTALL_PREFIX=${CMAKE_INSTALL_PREFIX}")
 
-set_default_buildtype()
+# Build type.
+if(NOT CMAKE_BUILD_TYPE)
+  message(STATUS "CMAKE_BUILD_TYPE not specified, default is 'Debug'")
+  set(CMAKE_BUILD_TYPE "Debug" CACHE STRING "Choose the type of build" FORCE)
+else()
+  message(STATUS "CMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}")
+endif()
 if(CMAKE_BUILD_TYPE MATCHES Debug)
   set(DEBUG 1)
 else()
   set(DEBUG 0)
 endif()
+# Set available build types for CMake GUIs.
+# Other build types can still be set by -DCMAKE_BUILD_TYPE=...
+set_property(CACHE CMAKE_BUILD_TYPE PROPERTY
+  STRINGS "Debug" "Release" "MinSizeRel" "RelWithDebInfo")
 
 # If not in a git repo (e.g., a tarball) these tokens define the complete
 # version string, else they are combined with the result of `git describe`.
@@ -170,7 +178,7 @@ if(CMAKE_C_FLAGS_RELEASE MATCHES "-O3")
   string(REPLACE "-O3" "-O2" CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE}")
 endif()
 
-if(CMAKE_C_COMPILER_ID MATCHES "GNU")
+if(CMAKE_COMPILER_IS_GNUCC)
   check_c_compiler_flag(-Og HAS_OG_FLAG)
 else()
   set(HAS_OG_FLAG 0)
@@ -268,7 +276,6 @@ int main(void)
 }
 " HAVE_BUILTIN_ADD_OVERFLOW)
 
-option(ENABLE_COMPILER_SUGGESTIONS "Enable -Wsuggest compiler warnings" OFF)
 if(MSVC)
   # XXX: /W4 gives too many warnings. #3241
   add_compile_options(/W3)
@@ -287,27 +294,25 @@ else()
     add_compile_options(-Wimplicit-fallthrough)
   endif()
 
-  if(ENABLE_COMPILER_SUGGESTIONS)
-    # Clang doesn't have -Wsuggest-attribute so check for each one.
-    check_c_compiler_flag(-Wsuggest-attribute=pure HAVE_WSUGGEST_ATTRIBUTE_PURE)
-    if(HAVE_WSUGGEST_ATTRIBUTE_PURE)
-      add_compile_options(-Wsuggest-attribute=pure)
-    endif()
+  # Clang doesn't have -Wsuggest-attribute so check for each one.
+  check_c_compiler_flag(-Wsuggest-attribute=pure HAVE_WSUGGEST_ATTRIBUTE_PURE)
+  if(HAVE_WSUGGEST_ATTRIBUTE_PURE)
+    add_compile_options(-Wsuggest-attribute=pure)
+  endif()
 
-    check_c_compiler_flag(-Wsuggest-attribute=const HAVE_WSUGGEST_ATTRIBUTE_CONST)
-    if(HAVE_WSUGGEST_ATTRIBUTE_CONST)
-      add_compile_options(-Wsuggest-attribute=const)
-    endif()
+  check_c_compiler_flag(-Wsuggest-attribute=const HAVE_WSUGGEST_ATTRIBUTE_CONST)
+  if(HAVE_WSUGGEST_ATTRIBUTE_CONST)
+    add_compile_options(-Wsuggest-attribute=const)
+  endif()
 
-    check_c_compiler_flag(-Wsuggest-attribute=malloc HAVE_WSUGGEST_ATTRIBUTE_MALLOC)
-    if(HAVE_WSUGGEST_ATTRIBUTE_MALLOC)
-      add_compile_options(-Wsuggest-attribute=malloc)
-    endif()
+  check_c_compiler_flag(-Wsuggest-attribute=malloc HAVE_WSUGGEST_ATTRIBUTE_MALLOC)
+  if(HAVE_WSUGGEST_ATTRIBUTE_MALLOC)
+    add_compile_options(-Wsuggest-attribute=malloc)
+  endif()
 
-    check_c_compiler_flag(-Wsuggest-attribute=cold HAVE_WSUGGEST_ATTRIBUTE_COLD)
-    if(HAVE_WSUGGEST_ATTRIBUTE_COLD)
-      add_compile_options(-Wsuggest-attribute=cold)
-    endif()
+  check_c_compiler_flag(-Wsuggest-attribute=cold HAVE_WSUGGEST_ATTRIBUTE_COLD)
+  if(HAVE_WSUGGEST_ATTRIBUTE_COLD)
+    add_compile_options(-Wsuggest-attribute=cold)
   endif()
 
   # On FreeBSD 64 math.h uses unguarded C11 extension, which taints clang
@@ -400,7 +405,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Darwin" AND CMAKE_SIZEOF_VOID_P EQUAL 8 AND NOT P
     "${CMAKE_MODULE_LINKER_FLAGS} -image_base 100000000")
 endif()
 
-include_directories("${PROJECT_BINARY_DIR}/cmake.config")
+include_directories("${PROJECT_BINARY_DIR}/config")
 include_directories("${PROJECT_SOURCE_DIR}/src")
 
 find_package(LibUV 1.28.0 REQUIRED)
@@ -444,7 +449,7 @@ if(TS_HAS_SET_ALLOCATOR)
   set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DNVIM_TS_HAS_SET_ALLOCATOR")
 endif()
 
-# The unit test lib requires LuaJIT; it will be skipped if LuaJIT is missing.
+# Note: The test lib requires LuaJIT; it will be skipped if LuaJIT is missing.
 option(PREFER_LUA "Prefer Lua over LuaJIT in the nvim executable." OFF)
 
 if(PREFER_LUA)
@@ -573,7 +578,11 @@ endif()
 
 message(STATUS "Using Lua interpreter: ${LUA_PRG}")
 
-option(COMPILE_LUA "Pre-compile Lua sources into bytecode (for sources that are included in the binary)" ON)
+if(DEBUG)
+  option(COMPILE_LUA "Pre-compile Lua sources into bytecode (for sources that are included in the binary)" OFF)
+else()
+  option(COMPILE_LUA "Pre-compile Lua sources into bytecode (for sources that are included in the binary)" ON)
+endif()
 
 if(COMPILE_LUA AND NOT WIN32)
   if(PREFER_LUA)
@@ -603,77 +612,16 @@ if(NOT BUSTED_OUTPUT_TYPE)
   set(BUSTED_OUTPUT_TYPE "nvim")
 endif()
 
-#
-# Lint
-#
 find_program(LUACHECK_PRG luacheck)
-find_program(STYLUA_PRG stylua)
 find_program(FLAKE8_PRG flake8)
-find_program(UNCRUSTIFY_PRG uncrustify)
-find_program(SHELLCHECK_PRG shellcheck)
-
-add_glob_targets(
-  REQUIRED
-  TARGET lintlua-luacheck
-  COMMAND ${LUACHECK_PRG}
-  FLAGS -q
-  GLOB_DIRS runtime/ scripts/ src/ test/
-  GLOB_PAT *.lua
-  TOUCH_STRATEGY SINGLE
-  )
-
-add_glob_targets(
-  TARGET lintlua-stylua
-  COMMAND ${STYLUA_PRG}
-  FLAGS --color=always --check
-  GLOB_DIRS runtime/
-  GLOB_PAT *.lua
-  TOUCH_STRATEGY SINGLE
-  )
-
-add_custom_target(lintlua)
-add_dependencies(lintlua lintlua-luacheck lintlua-stylua)
 
 include(InstallHelpers)
-add_glob_targets(
-  TARGET lintpy
-  COMMAND ${FLAKE8_PRG}
-  GLOB_DIRS contrib scripts src test
-  GLOB_PAT *.py
-  TOUCH_STRATEGY SINGLE
-  )
 
-add_glob_targets(
-  TARGET lintsh
-  COMMAND ${SHELLCHECK_PRG}
-  FILES scripts/vim-patch.sh
-  TOUCH_STRATEGY SINGLE
-  )
-
-add_custom_target(lintcommit
-  COMMAND ${PROJECT_BINARY_DIR}/bin/nvim -u NONE -es -c [[lua require('scripts.lintcommit').main({trace=false})]]
-  WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
-  VERBATIM)
-add_dependencies(lintcommit nvim)
-
-add_custom_target(lint)
-add_dependencies(lint check-single-includes lintc lintlua lintpy lintsh lintcommit lintuncrustify)
-
-#
-# Format
-#
-add_custom_target(formatlua
-  COMMAND ${CMAKE_COMMAND}
-    -D FORMAT_PRG=${STYLUA_PRG}
-    -D LANG=lua
-    -P ${PROJECT_SOURCE_DIR}/cmake/Format.cmake
-  WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
-
-add_custom_target(format)
-add_dependencies(format formatc formatlua)
-
+file(GLOB MANPAGES
+  RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
+  man/nvim.1)
 install_helper(
-  FILES ${CMAKE_SOURCE_DIR}/src/man/nvim.1
+  FILES ${MANPAGES}
   DESTINATION ${CMAKE_INSTALL_MANDIR}/man1)
 
 #
@@ -683,7 +631,7 @@ install_helper(
 add_subdirectory(src/nvim)
 get_directory_property(NVIM_VERSION_CFLAGS DIRECTORY src/nvim DEFINITION NVIM_VERSION_CFLAGS)
 add_subdirectory(test/includes)
-add_subdirectory(cmake.config)
+add_subdirectory(config)
 add_subdirectory(test/functional/fixtures)  # compile test programs
 add_subdirectory(runtime)
 get_directory_property(GENERATED_HELP_TAGS DIRECTORY runtime DEFINITION GENERATED_HELP_TAGS)
@@ -706,8 +654,19 @@ if(BUSTED_PRG)
   list(APPEND TEST_TARGET_ARGS "USES_TERMINAL")
 
   set(UNITTEST_PREREQS nvim-test unittest-headers)
-  set(FUNCTIONALTEST_PREREQS nvim printenv-test printargs-test shell-test pwsh-test streams-test tty-test ${GENERATED_HELP_TAGS})
+  set(FUNCTIONALTEST_PREREQS nvim printenv-test printargs-test shell-test streams-test tty-test ${GENERATED_HELP_TAGS})
   set(BENCHMARK_PREREQS nvim tty-test)
+
+  # Useful for automated build systems, if they want to manually run the tests.
+  add_custom_target(unittest-prereqs
+    DEPENDS ${UNITTEST_PREREQS})
+  set_target_properties(unittest-prereqs PROPERTIES FOLDER test)
+
+  add_custom_target(functionaltest-prereqs
+    DEPENDS ${FUNCTIONALTEST_PREREQS})
+
+  add_custom_target(benchmark-prereqs
+    DEPENDS ${BENCHMARK_PREREQS})
 
   check_lua_module(${LUA_PRG} "ffi" LUA_HAS_FFI)
   if(LUA_HAS_FFI)
@@ -734,11 +693,11 @@ if(BUSTED_PRG)
     set(TEST_LIBNVIM_PATH "")
   endif()
   configure_file(
-    ${CMAKE_SOURCE_DIR}/test/cmakeconfig/paths.lua.in
-    ${CMAKE_BINARY_DIR}/test/cmakeconfig/paths.lua.gen)
+    ${CMAKE_SOURCE_DIR}/test/config/paths.lua.in
+    ${CMAKE_BINARY_DIR}/test/config/paths.lua.gen)
   file(GENERATE
-    OUTPUT ${CMAKE_BINARY_DIR}/test/cmakeconfig/paths.lua
-    INPUT ${CMAKE_BINARY_DIR}/test/cmakeconfig/paths.lua.gen)
+    OUTPUT ${CMAKE_BINARY_DIR}/test/config/paths.lua
+    INPUT ${CMAKE_BINARY_DIR}/test/config/paths.lua.gen)
 
   add_custom_target(functionaltest
     COMMAND ${CMAKE_COMMAND}
@@ -753,7 +712,8 @@ if(BUSTED_PRG)
       -P ${PROJECT_SOURCE_DIR}/cmake/RunTests.cmake
     DEPENDS ${FUNCTIONALTEST_PREREQS}
     ${TEST_TARGET_ARGS})
-  set_target_properties(functionaltest PROPERTIES FOLDER test)
+  set_target_properties(functionaltest functionaltest-prereqs
+    PROPERTIES FOLDER test)
 
   add_custom_target(benchmark
     COMMAND ${CMAKE_COMMAND}
@@ -768,7 +728,7 @@ if(BUSTED_PRG)
       -P ${PROJECT_SOURCE_DIR}/cmake/RunTests.cmake
     DEPENDS ${BENCHMARK_PREREQS}
     ${TEST_TARGET_ARGS})
-  set_target_properties(benchmark PROPERTIES FOLDER test)
+  set_target_properties(benchmark benchmark-prereqs PROPERTIES FOLDER test)
 endif()
 
 if(BUSTED_LUA_PRG)
@@ -788,9 +748,28 @@ if(BUSTED_LUA_PRG)
     set_target_properties(functionaltest-lua PROPERTIES FOLDER test)
 endif()
 
-add_custom_target(uninstall
-  COMMAND ${CMAKE_COMMAND} -P ${PROJECT_SOURCE_DIR}/cmake/UninstallHelper.cmake)
+if(LUACHECK_PRG)
+  add_custom_target(lualint
+    COMMAND ${LUACHECK_PRG} -q runtime/ scripts/ src/ test/
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+else()
+  add_custom_target(lualint false
+    COMMENT "lualint: LUACHECK_PRG not defined")
+endif()
+
+
+#add uninstall target
+if(NOT TARGET uninstall)
+    configure_file(
+        "cmake/UninstallHelper.cmake.in"
+        "${CMAKE_CURRENT_BINARY_DIR}/UninstallHelper.cmake"
+        IMMEDIATE @ONLY)
+
+    add_custom_target(uninstall
+        COMMAND ${CMAKE_COMMAND} -P ${CMAKE_CURRENT_BINARY_DIR}/UninstallHelper.cmake)
+endif()
+
 
 if(${CMAKE_SOURCE_DIR} STREQUAL ${CMAKE_CURRENT_SOURCE_DIR})
-  add_subdirectory(cmake.packaging)
+  add_subdirectory(packaging)
 endif()

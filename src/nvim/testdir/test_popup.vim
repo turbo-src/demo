@@ -349,17 +349,19 @@ func DummyCompleteOne(findstart, base)
   endif
 endfunc
 
-" Test that nothing happens if the 'completefunc' tries to open
-" a new window (fails to open window, continues)
+" Test that nothing happens if the 'completefunc' opens
+" a new window (no completion, no crash)
 func Test_completefunc_opens_new_window_one()
   new
   let winid = win_getid()
   setlocal completefunc=DummyCompleteOne
   call setline(1, 'one')
   /^one
-  call assert_fails('call feedkeys("A\<C-X>\<C-U>\<C-N>\<Esc>", "x")', 'E565:')
+  call assert_fails('call feedkeys("A\<C-X>\<C-U>\<C-N>\<Esc>", "x")', 'E839:')
+  call assert_notequal(winid, win_getid())
+  q!
   call assert_equal(winid, win_getid())
-  call assert_equal('oneDEF', getline(1))
+  call assert_equal('', getline(1))
   q!
 endfunc
 
@@ -382,11 +384,11 @@ func Test_completefunc_opens_new_window_two()
   setlocal completefunc=DummyCompleteTwo
   call setline(1, 'two')
   /^two
-  call assert_fails('call feedkeys("A\<C-X>\<C-U>\<C-N>\<Esc>", "x")', 'E565:')
+  call assert_fails('call feedkeys("A\<C-X>\<C-U>\<C-N>\<Esc>", "x")', 'E764:')
+  call assert_notequal(winid, win_getid())
+  q!
   call assert_equal(winid, win_getid())
-  " v8.2.1919 hasn't been ported yet
-  " call assert_equal('twodef', getline(1))
-  call assert_equal('twoDEF', getline(1))
+  call assert_equal('two', getline(1))
   q!
 endfunc
 
@@ -655,8 +657,8 @@ func Test_complete_func_mess()
   set completefunc=MessComplete
   new
   call setline(1, 'Ju')
-  call assert_fails('call feedkeys("A\<c-x>\<c-u>/\<esc>", "tx")', 'E565:')
-  call assert_equal('Jan/', getline(1))
+  call feedkeys("A\<c-x>\<c-u>/\<esc>", 'tx')
+  call assert_equal('Oct/Oct', getline(1))
   bwipe!
   set completefunc=
 endfunc
@@ -864,21 +866,15 @@ func Test_popup_position()
 endfunc
 
 func Test_popup_command()
-  CheckScreendump
-  CheckFeature menu
+  if !CanRunVimInTerminal() || !has('menu')
+    return
+  endif
 
-  menu Test.Foo Foo
-  call assert_fails('popup Test.Foo', 'E336:')
-  call assert_fails('popup Test.Foo.X', 'E327:')
-  call assert_fails('popup Foo', 'E337:')
-  unmenu Test.Foo
-
-  let lines =<< trim END
-	one two three four five
-	and one two Xthree four five
-	one more two three four five
-  END
-  call writefile(lines, 'Xtest')
+  call writefile([
+	\ 'one two three four five',
+	\ 'and one two Xthree four five',
+	\ 'one more two three four five',
+	\ ], 'Xtest')
   let buf = RunVimInTerminal('Xtest', {})
   call term_sendkeys(buf, ":source $VIMRUNTIME/menu.vim\<CR>")
   call term_sendkeys(buf, "/X\<CR>:popup PopUp\<CR>")
@@ -917,7 +913,7 @@ func Test_popup_complete_backwards_ctrl_p()
   bwipe!
 endfunc
 
-func Test_complete_o_tab()
+fun! Test_complete_o_tab()
   CheckFunction test_override
   let s:o_char_pressed = 0
 
@@ -926,7 +922,7 @@ func Test_complete_o_tab()
       let s:o_char_pressed = 0
       call feedkeys("\<c-x>\<c-n>", 'i')
     endif
-  endfunc
+  endf
 
   set completeopt=menu,noselect
   new
@@ -945,40 +941,7 @@ func Test_complete_o_tab()
   bwipe!
   set completeopt&
   delfunc s:act_on_text_changed
-endfunc
-
-func Test_menu_only_exists_in_terminal()
-  if !exists(':tlmenu') || has('gui_running')
-    return
-  endif
-  tlnoremenu  &Edit.&Paste<Tab>"+gP  <C-W>"+
-  aunmenu *
-  try
-    popup Edit
-    call assert_false(1, 'command should have failed')
-  catch
-    call assert_exception('E328:')
-  endtry
-endfunc
-
-" This used to crash before patch 8.1.1424
-func Test_popup_delete_when_shown()
-  CheckFeature menu
-  CheckNotGui
-
-  func Func()
-    popup Foo
-    return "\<Ignore>"
-  endfunc
-
-  nmenu Foo.Bar :
-  nnoremap <expr> <F2> Func()
-  call feedkeys("\<F2>\<F2>\<Esc>", 'xt')
-
-  delfunc Func
-  nunmenu Foo.Bar
-  nunmap <F2>
-endfunc
+endf
 
 func Test_popup_complete_info_01()
   new

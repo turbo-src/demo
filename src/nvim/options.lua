@@ -1597,7 +1597,7 @@ return {
       short_desc=N_("the use of mouse clicks"),
       type='string', list='flags', scope={'global'},
       varname='p_mouse',
-      defaults={if_true="nvi"}
+      defaults={if_true=""}
     },
     {
       full_name='mousefocus', abbreviation='mousef',
@@ -1619,23 +1619,7 @@ return {
       short_desc=N_("changes meaning of mouse buttons"),
       type='string', scope={'global'},
       varname='p_mousem',
-      defaults={if_true="popup_setpos"}
-    },
-    {
-      full_name='mousemoveevent', abbreviation='mousemev',
-      short_desc=N_("deliver mouse move events to input queue"),
-      type='bool', scope={'global'},
-      redraw={'ui_option'},
-      varname='p_mousemev',
-      defaults={if_true=false}
-    },
-    {
-      full_name='mousescroll',
-      short_desc=N_("amount to scroll by when scrolling with a mouse"),
-      type='string', list='comma', scope={'global'},
-      vi_def=true,
-      varname='p_mousescroll',
-      defaults={if_true="ver:3,hor:6"}
+      defaults={if_true="extend"}
     },
     {
       full_name='mouseshape', abbreviation='mouses',
@@ -2071,7 +2055,7 @@ return {
       type='string', list='onecomma', scope={'global'},
       deny_duplicates=true,
       varname='p_ssop',
-      defaults={if_true="blank,buffers,curdir,folds,help,tabpages,winsize,terminal"}
+      defaults={if_true="blank,buffers,curdir,folds,help,tabpages,winsize"}
     },
     {
       full_name='shada', abbreviation='sd',
@@ -2355,7 +2339,6 @@ return {
       secure=true,
       expand=true,
       varname='p_spo',
-      redraw={'current_buffer'},
       defaults={if_true=""}
     },
     {
@@ -2868,8 +2851,7 @@ return {
     {
       full_name='winhighlight', abbreviation='winhl',
       short_desc=N_("Setup window-local highlights");
-      type='string', list='onecomma', scope={'window'},
-      deny_duplicates=true,
+      type='string', scope={'window'},
       alloced=true,
       redraw={'current_window'},
       defaults={if_true=""}

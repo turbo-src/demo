@@ -30,19 +30,6 @@ for x in [
 eval 0
 endfor
 
-let t = [
-\ {
-\ 'k': 'val',
-\ },
-\  ]
-
-def Func()
-  var d = dd
-	->extend({
-	})
-  eval 0
-enddef
-
 " END_INDENT
 
 " START_INDENT

@@ -112,7 +112,7 @@ describe('Remote', function()
     eq(nil, string.find(meths.exec('messages', true), 'E247'))
   end)
 
-  pending('exits with error on', function()
+  describe('exits with error on', function()
     local function run_and_check_exit_code(...)
       local bogus_argv = new_argv(...)
 

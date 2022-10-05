@@ -5,7 +5,6 @@
         "globals": [
           "vim",
           "describe",
-          "pending",
           "it",
           "before_each",
           "after_each",

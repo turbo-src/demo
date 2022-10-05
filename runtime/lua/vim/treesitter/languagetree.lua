@@ -32,8 +32,10 @@ function LanguageTree.new(source, lang, opts)
     _regions = {},
     _trees = {},
     _opts = opts,
-    _injection_query = injections[lang] and query.parse_query(lang, injections[lang])
-      or query.get_query(lang, 'injections'),
+    _injection_query = injections[lang] and query.parse_query(lang, injections[lang]) or query.get_query(
+      lang,
+      'injections'
+    ),
     _valid = false,
     _parser = vim._create_ts_parser(lang),
     _callbacks = {
@@ -259,27 +261,22 @@ end
 ---
 --- Note, this call invalidates the tree and requires it to be parsed again.
 ---
----@param regions (table) list of regions this tree should manage and parse.
+---@param regions A list of regions this tree should manage and parse.
 function LanguageTree:set_included_regions(regions)
-  -- Transform the tables from 4 element long to 6 element long (with byte offset)
-  for _, region in ipairs(regions) do
-    for i, range in ipairs(region) do
-      if type(range) == 'table' and #range == 4 then
-        local start_row, start_col, end_row, end_col = unpack(range)
-        local start_byte = 0
-        local end_byte = 0
-        -- TODO(vigoux): proper byte computation here, and account for EOL ?
-        if type(self._source) == 'number' then
+  -- TODO(vigoux): I don't think string parsers are useful for now
+  if type(self._source) == 'number' then
+    -- Transform the tables from 4 element long to 6 element long (with byte offset)
+    for _, region in ipairs(regions) do
+      for i, range in ipairs(region) do
+        if type(range) == 'table' and #range == 4 then
+          local start_row, start_col, end_row, end_col = unpack(range)
           -- Easy case, this is a buffer parser
-          start_byte = a.nvim_buf_get_offset(self._source, start_row) + start_col
-          end_byte = a.nvim_buf_get_offset(self._source, end_row) + end_col
-        elseif type(self._source) == 'string' then
-          -- string parser, single `\n` delimited string
-          start_byte = vim.fn.byteidx(self._source, start_col)
-          end_byte = vim.fn.byteidx(self._source, end_col)
-        end
+          -- TODO(vigoux): proper byte computation here, and account for EOL ?
+          local start_byte = a.nvim_buf_get_offset(self._source, start_row) + start_col
+          local end_byte = a.nvim_buf_get_offset(self._source, end_row) + end_col
 
-        region[i] = { start_row, start_col, start_byte, end_row, end_col, end_byte }
+          region[i] = { start_row, start_col, start_byte, end_row, end_col, end_byte }
+        end
       end
     end
   end
@@ -296,14 +293,6 @@ end
 --- Gets the set of included regions
 function LanguageTree:included_regions()
   return self._regions
-end
-
----@private
-local function get_range_from_metadata(node, id, metadata)
-  if metadata[id] and metadata[id].range then
-    return metadata[id].range
-  end
-  return { node:range() }
 end
 
 --- Gets language injection points by language.
@@ -338,10 +327,10 @@ function LanguageTree:_get_injections()
 
         -- Allow for captured nodes to be used
         if type(content) == 'number' then
-          content = { match[content]:range() }
+          content = { match[content] }
         end
 
-        if type(content) == 'table' and #content >= 4 then
+        if content then
           vim.list_extend(ranges, content)
         end
       end
@@ -362,7 +351,7 @@ function LanguageTree:_get_injections()
         elseif name == 'combined' then
           combined = true
         elseif name == 'content' and #ranges == 0 then
-          table.insert(ranges, get_range_from_metadata(node, id, metadata))
+          table.insert(ranges, node)
           -- Ignore any tags that start with "_"
           -- Allows for other tags to be used in matches
         elseif string.sub(name, 1, 1) ~= '_' then
@@ -371,7 +360,7 @@ function LanguageTree:_get_injections()
           end
 
           if #ranges == 0 then
-            table.insert(ranges, get_range_from_metadata(node, id, metadata))
+            table.insert(ranges, node)
           end
         end
       end
@@ -408,10 +397,7 @@ function LanguageTree:_get_injections()
 
       for _, entry in pairs(patterns) do
         if entry.combined then
-          local regions = vim.tbl_map(function(e)
-            return vim.tbl_flatten(e)
-          end, entry.regions)
-          table.insert(result[lang], regions)
+          table.insert(result[lang], vim.tbl_flatten(entry.regions))
         else
           for _, ranges in ipairs(entry.regions) do
             table.insert(result[lang], ranges)
@@ -547,44 +533,6 @@ function LanguageTree:contains(range)
   end
 
   return false
-end
-
---- Gets the tree that contains {range}
----
----@param range table A text range
----@param opts table Options table
----@param opts.ignore_injections boolean (default true) Ignore injected languages.
-function LanguageTree:tree_for_range(range, opts)
-  opts = opts or {}
-  local ignore = vim.F.if_nil(opts.ignore_injections, true)
-
-  if not ignore then
-    for _, child in pairs(self._children) do
-      for _, tree in pairs(child:trees()) do
-        if tree_contains(tree, range) then
-          return tree
-        end
-      end
-    end
-  end
-
-  for _, tree in pairs(self._trees) do
-    if tree_contains(tree, range) then
-      return tree
-    end
-  end
-
-  return nil
-end
-
---- Gets the smallest named node that contains {range}
----
----@param range table A text range
----@param opts table Options table
----@param opts.ignore_injections boolean (default true) Ignore injected languages.
-function LanguageTree:named_node_for_range(range, opts)
-  local tree = self:tree_for_range(range, opts)
-  return tree:root():named_descendant_for_range(unpack(range))
 end
 
 --- Gets the appropriate language that contains {range}

@@ -1,7 +1,7 @@
 " Vim syntax file
 " Language: FreeBSD send-pr file
 " Maintainer: Hendrik Scholz <hendrik@scholz.net>
-" Last Change: 2022 Jun 14
+" Last Change: 2012 Feb 03
 "
 " http://raisdorf.net/files/misc/send-pr.vim
 
@@ -30,8 +30,6 @@ hi def link sendprComment   Comment
 hi def link sendprType      Type
 hi def link sendprString    String
 hi def link sendprLabel     Label
-
-let b:current_syntax = 'sendpr'
 
 let &cpo = s:cpo_save
 unlet s:cpo_save

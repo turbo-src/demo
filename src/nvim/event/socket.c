@@ -38,7 +38,7 @@ int socket_watcher_init(Loop *loop, SocketWatcher *watcher, const char *endpoint
     char *port = host_end + 1;
     intmax_t iport;
 
-    int ok = try_getdigits(&(char *){ port }, &iport);
+    int ok = try_getdigits(&(char_u *){ (char_u *)port }, &iport);
     if (!ok || iport < 0 || iport > UINT16_MAX) {
       ELOG("Invalid port: %s", port);
       return UV_EINVAL;
@@ -125,7 +125,7 @@ int socket_watcher_start(SocketWatcher *watcher, int backlog, socket_cb cb)
       // Libuv converts ENOENT to EACCES for Windows compatibility, but if
       // the parent directory does not exist, ENOENT would be more accurate.
       *path_tail(watcher->addr) = NUL;
-      if (!os_path_exists(watcher->addr)) {
+      if (!os_path_exists((char_u *)watcher->addr)) {
         result = UV_ENOENT;
       }
     }

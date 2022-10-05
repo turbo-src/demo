@@ -1,5 +1,3 @@
-// uncrustify:off
-
 /// @file eval/typval_encode.c.h
 ///
 /// Contains set of macros used to convert (possibly recursive) typval_T into

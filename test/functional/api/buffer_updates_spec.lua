@@ -96,8 +96,6 @@ local function reopenwithfolds(b)
 end
 
 describe('API: buffer events:', function()
-  before_each(clear)
-
   it('when lines are added', function()
     local b, tick = editoriginal(true)
 

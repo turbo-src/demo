@@ -31,7 +31,6 @@ func Test_abclear()
 
    abclear
    call assert_equal("\n\nNo abbreviation found", execute('abbrev'))
-   call assert_fails('%abclear', 'E481:')
 endfunc
 
 func Test_abclear_buffer()
@@ -643,13 +642,6 @@ func Test_map_error()
   map <expr> ,f abc
   call assert_fails('normal ,f', 'E121:')
   unmap <expr> ,f
-
-  " Recursive use of :normal in a map
-  set maxmapdepth=100
-  map gq :normal gq<CR>
-  call assert_fails('normal gq', 'E192:')
-  unmap gq
-  set maxmapdepth&
 endfunc
 
 " Test for <special> key mapping
@@ -956,16 +948,6 @@ func Test_map_cmdkey_redo()
   ounmap i-
 endfunc
 
-" Test for using <script> with a map to remap characters in rhs
-func Test_script_local_remap()
-  new
-  inoremap <buffer> <SID>xyz mno
-  inoremap <buffer> <script> abc st<SID>xyzre
-  normal iabc
-  call assert_equal('stmnore', getline(1))
-  bwipe!
-endfunc
-
 func Test_abbreviate_multi_byte()
   new
   iabbrev foo bar
@@ -1097,36 +1079,6 @@ func Test_expr_map_escape_special()
   nunmap <F2>
   unlet g:got_ellipsis
   nunmap …
-endfunc
-
-" Testing for mapping after an <Nop> mapping is triggered on timeout.
-" Test for what patch 8.1.0052 fixes.
-func Test_map_after_timed_out_nop()
-  CheckRunVimInTerminal
-
-  let lines =<< trim END
-    set timeout timeoutlen=400
-    inoremap ab TEST
-    inoremap a <Nop>
-  END
-  call writefile(lines, 'Xtest_map_after_timed_out_nop')
-  let buf = RunVimInTerminal('-S Xtest_map_after_timed_out_nop', #{rows: 6})
-
-  " Enter Insert mode
-  call term_sendkeys(buf, 'i')
-  " Wait for the "a" mapping to timeout
-  call term_sendkeys(buf, 'a')
-  call term_wait(buf, 500)
-  " Send "a" and wait for a period shorter than 'timeoutlen'
-  call term_sendkeys(buf, 'a')
-  call term_wait(buf, 100)
-  " Send "b", should trigger the "ab" mapping
-  call term_sendkeys(buf, 'b')
-  call WaitForAssert({-> assert_equal("TEST", term_getline(buf, 1))})
-
-  " clean up
-  call StopVimInTerminal(buf)
-  call delete('Xtest_map_after_timed_out_nop')
 endfunc
 
 " vim: shiftwidth=2 sts=2 expandtab

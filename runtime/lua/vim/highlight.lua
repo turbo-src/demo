@@ -11,25 +11,16 @@ M.priorities = {
 
 ---@private
 function M.create(higroup, hi_info, default)
-  vim.deprecate('vim.highlight.create', 'vim.api.nvim_set_hl', '0.9')
   local options = {}
   -- TODO: Add validation
   for k, v in pairs(hi_info) do
     table.insert(options, string.format('%s=%s', k, v))
   end
-  vim.cmd(
-    string.format(
-      [[highlight %s %s %s]],
-      default and 'default' or '',
-      higroup,
-      table.concat(options, ' ')
-    )
-  )
+  vim.cmd(string.format([[highlight %s %s %s]], default and 'default' or '', higroup, table.concat(options, ' ')))
 end
 
 ---@private
 function M.link(higroup, link_to, force)
-  vim.deprecate('vim.highlight.link', 'vim.api.nvim_set_hl', '0.9')
   vim.cmd(string.format([[highlight%s link %s %s]], force and '!' or ' default', higroup, link_to))
 end
 
@@ -73,7 +64,6 @@ function M.range(bufnr, ns, higroup, start, finish, opts)
 end
 
 local yank_ns = api.nvim_create_namespace('hlyank')
-local yank_timer
 --- Highlight the yanked region
 ---
 --- use from init.vim via
@@ -123,9 +113,6 @@ function M.on_yank(opts)
 
   local bufnr = api.nvim_get_current_buf()
   api.nvim_buf_clear_namespace(bufnr, yank_ns, 0, -1)
-  if yank_timer then
-    yank_timer:close()
-  end
 
   local pos1 = vim.fn.getpos("'[")
   local pos2 = vim.fn.getpos("']")
@@ -142,8 +129,7 @@ function M.on_yank(opts)
     { regtype = event.regtype, inclusive = event.inclusive, priority = M.priorities.user }
   )
 
-  yank_timer = vim.defer_fn(function()
-    yank_timer = nil
+  vim.defer_fn(function()
     if api.nvim_buf_is_valid(bufnr) then
       api.nvim_buf_clear_namespace(bufnr, yank_ns, 0, -1)
     end

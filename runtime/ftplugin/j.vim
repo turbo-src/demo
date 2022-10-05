@@ -2,7 +2,7 @@
 " Language:	J
 " Maintainer:	David Bürgin <dbuergin@gluet.ch>
 " URL:		https://gitlab.com/glts/vim-j
-" Last Change:	2022-08-06
+" Last Change:	2015-10-27
 
 if exists('b:did_ftplugin')
   finish
@@ -29,43 +29,41 @@ let b:undo_ftplugin = 'setlocal suffixesadd< includeexpr< include< path< matchpa
 
 " Section movement with ]] ][ [[ []. The start/end patterns below are amended
 " inside the function in order to avoid matching on the current cursor line.
-if !exists('no_plugin_maps') && !exists('no_j_maps')
-  let s:sectionstart = '\%(\s*Note\|.\{-}\<\%([0-4]\|13\|noun\|adverb\|conjunction\|verb\|monad\|dyad\)\s\+\%(:\s*0\|def\s\+0\|define\)\)\>.*'
-  let s:sectionend = '\s*)\s*'
+let s:sectionstart = '\%(\s*Note\|.\{-}\<\%([0-4]\|13\|noun\|adverb\|conjunction\|verb\|monad\|dyad\)\s\+\%(:\s*0\|def\s\+0\|define\)\)\>.*'
+let s:sectionend = '\s*)\s*'
 
-  function! s:SearchSection(end, backwards, visualmode) abort
-    if a:visualmode !=# ''
-      normal! gv
-    endif
-    let l:flags = a:backwards ? 'bsW' : 'sW'
-    if a:end
-      call search('^' . s:sectionend . (a:backwards ? '\n\_.\{-}\%#' : '$'), l:flags)
-    else
-      call search('^' . s:sectionstart . (a:backwards ? '\n\_.\{-}\%#' : '$'), l:flags)
-    endif
-  endfunction
+function! s:SearchSection(end, backwards, visualmode) abort
+  if a:visualmode !=# ''
+    normal! gv
+  endif
+  let l:flags = a:backwards ? 'bsW' : 'sW'
+  if a:end
+    call search('^' . s:sectionend . (a:backwards ? '\n\_.\{-}\%#' : '$'), l:flags)
+  else
+    call search('^' . s:sectionstart . (a:backwards ? '\n\_.\{-}\%#' : '$'), l:flags)
+  endif
+endfunction
 
-  noremap <buffer> <silent> ]] :<C-U>call <SID>SearchSection(0, 0, '')<CR>
-  xnoremap <buffer> <silent> ]] :<C-U>call <SID>SearchSection(0, 0, visualmode())<CR>
-  sunmap <buffer> ]]
-  noremap <buffer> <silent> ][ :<C-U>call <SID>SearchSection(1, 0, '')<CR>
-  xnoremap <buffer> <silent> ][ :<C-U>call <SID>SearchSection(1, 0, visualmode())<CR>
-  sunmap <buffer> ][
-  noremap <buffer> <silent> [[ :<C-U>call <SID>SearchSection(0, 1, '')<CR>
-  xnoremap <buffer> <silent> [[ :<C-U>call <SID>SearchSection(0, 1, visualmode())<CR>
-  sunmap <buffer> [[
-  noremap <buffer> <silent> [] :<C-U>call <SID>SearchSection(1, 1, '')<CR>
-  xnoremap <buffer> <silent> [] :<C-U>call <SID>SearchSection(1, 1, visualmode())<CR>
-  sunmap <buffer> []
+noremap <buffer> <silent> ]] :<C-U>call <SID>SearchSection(0, 0, '')<CR>
+xnoremap <buffer> <silent> ]] :<C-U>call <SID>SearchSection(0, 0, visualmode())<CR>
+sunmap <buffer> ]]
+noremap <buffer> <silent> ][ :<C-U>call <SID>SearchSection(1, 0, '')<CR>
+xnoremap <buffer> <silent> ][ :<C-U>call <SID>SearchSection(1, 0, visualmode())<CR>
+sunmap <buffer> ][
+noremap <buffer> <silent> [[ :<C-U>call <SID>SearchSection(0, 1, '')<CR>
+xnoremap <buffer> <silent> [[ :<C-U>call <SID>SearchSection(0, 1, visualmode())<CR>
+sunmap <buffer> [[
+noremap <buffer> <silent> [] :<C-U>call <SID>SearchSection(1, 1, '')<CR>
+xnoremap <buffer> <silent> [] :<C-U>call <SID>SearchSection(1, 1, visualmode())<CR>
+sunmap <buffer> []
 
-  let b:undo_ftplugin .= ' | silent! execute "unmap <buffer> ]]"'
-                     \ . ' | silent! execute "unmap <buffer> ]["'
-                     \ . ' | silent! execute "unmap <buffer> [["'
-                     \ . ' | silent! execute "unmap <buffer> []"'
-endif
+let b:undo_ftplugin .= ' | silent! execute "unmap <buffer> ]]"'
+                   \ . ' | silent! execute "unmap <buffer> ]["'
+                   \ . ' | silent! execute "unmap <buffer> [["'
+                   \ . ' | silent! execute "unmap <buffer> []"'
 
-" Browse dialog filter on Windows and GTK (see ":help browsefilter")
-if (has('gui_win32') || has('gui_gtk')) && !exists('b:browsefilter')
+" Browse dialog filter on Windows (see ":help browsefilter")
+if has('gui_win32') && !exists('b:browsefilter')
   let b:browsefilter = "J Script Files (*.ijs)\t*.ijs\n"
                    \ . "All Files (*.*)\t*.*\n"
   let b:undo_ftplugin .= ' | unlet! b:browsefilter'

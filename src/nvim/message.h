@@ -11,7 +11,9 @@
 #include "nvim/macros.h"
 #include "nvim/types.h"
 
-// Types of dialogs passed to do_dialog().
+/*
+ * Types of dialogs passed to do_dialog().
+ */
 #define VIM_GENERIC     0
 #define VIM_ERROR       1
 #define VIM_WARNING     2
@@ -19,7 +21,9 @@
 #define VIM_QUESTION    4
 #define VIM_LAST_TYPE   4       // sentinel value
 
-// Return values for functions like vim_dialogyesno()
+/*
+ * Return values for functions like vim_dialogyesno()
+ */
 #define VIM_YES         2
 #define VIM_NO          3
 #define VIM_CANCEL      4
@@ -36,11 +40,10 @@ typedef kvec_t(HlMessageChunk) HlMessage;
 /// Message history for `:messages`
 typedef struct msg_hist {
   struct msg_hist *next;  ///< Next message.
-  char *msg;            ///< Message text.
+  char_u *msg;            ///< Message text.
   const char *kind;     ///< Message kind (for msg_ext)
   int attr;               ///< Message highlighting.
   bool multiline;         ///< Multiline message.
-  HlMessage multiattr;    ///< multiattr message.
 } MessageHistoryEntry;
 
 /// First message

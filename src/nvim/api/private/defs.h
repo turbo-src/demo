@@ -6,10 +6,9 @@
 #include <string.h>
 
 #include "nvim/func_attr.h"
-#include "nvim/lib/kvec.h"
 #include "nvim/types.h"
 
-#define ARRAY_DICT_INIT KV_INITIAL_VALUE
+#define ARRAY_DICT_INIT { .size = 0, .capacity = 0, .items = NULL }
 #define STRING_INIT { .data = NULL, .size = 0 }
 #define OBJECT_INIT { .type = kObjectTypeNil }
 #define ERROR_INIT { .type = kErrorTypeNone, .msg = NULL }
@@ -36,7 +35,6 @@ typedef enum {
   kMessageTypeRequest = 0,
   kMessageTypeResponse = 1,
   kMessageTypeNotification = 2,
-  kMessageTypeRedrawEvent = 3,
 } MessageType;
 
 /// Mask for all internal calls
@@ -86,10 +84,18 @@ REMOTE_TYPE(Window);
 REMOTE_TYPE(Tabpage);
 
 typedef struct object Object;
-typedef kvec_t(Object) Array;
+
+typedef struct {
+  Object *items;
+  size_t size, capacity;
+} Array;
 
 typedef struct key_value_pair KeyValuePair;
-typedef kvec_t(KeyValuePair) Dictionary;
+
+typedef struct {
+  KeyValuePair *items;
+  size_t size, capacity;
+} Dictionary;
 
 typedef enum {
   kObjectTypeNil = 0,

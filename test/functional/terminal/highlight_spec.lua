@@ -2,7 +2,7 @@ local helpers = require('test.functional.helpers')(after_each)
 local Screen = require('test.functional.ui.screen')
 local thelpers = require('test.functional.terminal.helpers')
 local feed, clear, nvim = helpers.feed, helpers.clear, helpers.nvim
-local testprg, command = helpers.testprg, helpers.command
+local nvim_dir, command = helpers.nvim_dir, helpers.command
 local nvim_prog_abs = helpers.nvim_prog_abs
 local eq, eval = helpers.eq, helpers.eval
 local funcs = helpers.funcs
@@ -28,7 +28,7 @@ describe(':terminal highlight', function()
       [11] = {background = 11},
     })
     screen:attach({rgb=false})
-    command(("enew | call termopen(['%s'])"):format(testprg('tty-test')))
+    command('enew | call termopen(["'..nvim_dir..'/tty-test"])')
     feed('i')
     screen:expect([[
       tty ready                                         |
@@ -173,7 +173,7 @@ describe(':terminal highlight forwarding', function()
       [4] = {{foreground = tonumber('0xff8000')}, {}},
     })
     screen:attach()
-    command(("enew | call termopen(['%s'])"):format(testprg('tty-test')))
+    command('enew | call termopen(["'..nvim_dir..'/tty-test"])')
     feed('i')
     screen:expect([[
       tty ready                                         |
@@ -225,7 +225,7 @@ describe(':terminal highlight with custom palette', function()
     })
     screen:attach({rgb=true})
     nvim('set_var', 'terminal_color_3', '#123456')
-    command(("enew | call termopen(['%s'])"):format(testprg('tty-test')))
+    command('enew | call termopen(["'..nvim_dir..'/tty-test"])')
     feed('i')
     screen:expect([[
       tty ready                                         |
@@ -306,7 +306,7 @@ describe('synIDattr()', function()
 
   it('returns "1" if group has given highlight attribute', function()
     local hl_attrs = {
-      'underline', 'undercurl', 'underdouble', 'underdotted', 'underdashed', 'strikethrough'
+      'underline', 'underlineline', 'undercurl', 'underdot', 'underdash', 'strikethrough'
     }
     for _,hl_attr in ipairs(hl_attrs) do
       local context = 'using ' .. hl_attr .. ' attr'

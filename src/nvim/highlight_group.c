@@ -9,10 +9,6 @@
 #include "nvim/autocmd.h"
 #include "nvim/charset.h"
 #include "nvim/cursor_shape.h"
-#include "nvim/drawscreen.h"
-#include "nvim/eval.h"
-#include "nvim/eval/vars.h"
-#include "nvim/ex_docmd.h"
 #include "nvim/fold.h"
 #include "nvim/highlight.h"
 #include "nvim/highlight_group.h"
@@ -20,6 +16,7 @@
 #include "nvim/match.h"
 #include "nvim/option.h"
 #include "nvim/runtime.h"
+#include "nvim/screen.h"
 
 /// \addtogroup SG_SET
 /// @{
@@ -33,20 +30,15 @@
 // builtin |highlight-groups|
 static garray_T highlight_ga = GA_EMPTY_INIT_VALUE;
 
-// arena for object with same lifetime as highlight_ga (aka hl_table)
-Arena highlight_arena = ARENA_EMPTY;
-
 Map(cstr_t, int) highlight_unames = MAP_INIT;
 
 /// The "term", "cterm" and "gui" arguments can be any combination of the
 /// following names, separated by commas (but no spaces!).
 static char *(hl_name_table[]) =
-{ "bold", "standout", "underline",
-  "undercurl", "underdouble", "underdotted", "underdashed",
-  "italic", "reverse", "inverse", "strikethrough", "nocombine", "NONE" };
+{ "bold", "standout", "underline", "underlineline", "undercurl", "underdot",
+  "underdash", "italic", "reverse", "inverse", "strikethrough", "nocombine", "NONE" };
 static int hl_attr_table[] =
-{ HL_BOLD, HL_STANDOUT, HL_UNDERLINE,
-  HL_UNDERCURL, HL_UNDERDOUBLE, HL_UNDERDOTTED, HL_UNDERDASHED,
+{ HL_BOLD, HL_STANDOUT, HL_UNDERLINE, HL_UNDERLINELINE, HL_UNDERCURL, HL_UNDERDOT, HL_UNDERDASH,
   HL_ITALIC, HL_INVERSE, HL_INVERSE, HL_STRIKETHROUGH, HL_NOCOMBINE, 0 };
 
 /// Structure that stores information about a highlight group.
@@ -74,27 +66,21 @@ typedef struct {
   RgbValue sg_rgb_fg;           ///< RGB foreground color
   RgbValue sg_rgb_bg;           ///< RGB background color
   RgbValue sg_rgb_sp;           ///< RGB special color
-  int sg_rgb_fg_idx;            ///< RGB foreground color index
-  int sg_rgb_bg_idx;            ///< RGB background color index
-  int sg_rgb_sp_idx;            ///< RGB special color index
+  char *sg_rgb_fg_name;         ///< RGB foreground color name
+  char *sg_rgb_bg_name;         ///< RGB background color name
+  char *sg_rgb_sp_name;         ///< RGB special color name
 
   int sg_blend;                 ///< blend level (0-100 inclusive), -1 if unset
-
-  int sg_parent;                ///< parent of @nested.group
 } HlGroup;
-
-enum {
-  kColorIdxNone = -1,
-  kColorIdxHex = -2,
-  kColorIdxFg = -3,
-  kColorIdxBg = -4,
-};
 
 #ifdef INCLUDE_GENERATED_DECLARATIONS
 # include "highlight_group.c.generated.h"
 #endif
 
-#define hl_table ((HlGroup *)((highlight_ga.ga_data)))
+static inline HlGroup *HL_TABLE(void)
+{
+  return ((HlGroup *)((highlight_ga.ga_data)));
+}
 
 // The default highlight groups.  These are compiled-in for fast startup and
 // they still work when the runtime files can't be found.
@@ -185,53 +171,6 @@ static const char *highlight_init_both[] = {
   "default link DiagnosticSignWarn DiagnosticWarn",
   "default link DiagnosticSignInfo DiagnosticInfo",
   "default link DiagnosticSignHint DiagnosticHint",
-
-  "default link @text.underline Underlined",
-  "default link @todo Todo",
-  "default link @debug Debug",
-
-  // Miscs
-  "default link @comment Comment",
-  "default link @punctuation Delimiter",
-
-  // Constants
-  "default link @constant Constant",
-  "default link @constant.builtin Special",
-  "default link @constant.macro Define",
-  "default link @define Define",
-  "default link @macro Macro",
-  "default link @string String",
-  "default link @string.escape SpecialChar",
-  "default link @character Character",
-  "default link @character.special SpecialChar",
-  "default link @number Number",
-  "default link @boolean Boolean",
-  "default link @float Float",
-
-  // Functions
-  "default link @function Function",
-  "default link @function.builtin Special",
-  "default link @function.macro Macro",
-  "default link @parameter Identifier",
-  "default link @method Function",
-  "default link @field Identifier",
-  "default link @property Identifier",
-  "default link @constructor Special",
-
-  // Keywords
-  "default link @conditional Conditional",
-  "default link @repeat Repeat",
-  "default link @label Label",
-  "default link @operator Operator",
-  "default link @keyword Keyword",
-  "default link @exception Exception",
-
-  "default link @type Type",
-  "default link @type.definition Typedef",
-  "default link @storageclass StorageClass",
-  "default link @structure Structure",
-  "default link @include Include",
-  "default link @preproc PreProc",
   NULL
 };
 
@@ -525,13 +464,13 @@ int highlight_num_groups(void)
 /// Returns the name of a highlight group.
 char_u *highlight_group_name(int id)
 {
-  return hl_table[id].sg_name;
+  return HL_TABLE()[id].sg_name;
 }
 
 /// Returns the ID of the link to a highlight group.
 int highlight_link_id(int id)
 {
-  return hl_table[id].sg_link;
+  return HL_TABLE()[id].sg_link;
 }
 
 /// Create default links for Nvim* highlight groups used for cmdline coloring
@@ -553,12 +492,12 @@ void init_highlight(bool both, bool reset)
 
   // Try finding the color scheme file.  Used when a color file was loaded
   // and 'background' or 't_Co' is changed.
-  char *p = (char *)get_var_value("g:colors_name");
+  char_u *p = get_var_value("g:colors_name");
   if (p != NULL) {
     // Value of g:colors_name could be freed in load_colors() and make
     // p invalid, so copy it.
-    char *copy_p = xstrdup(p);
-    bool okay = load_colors((char_u *)copy_p);
+    char_u *copy_p = vim_strsave(p);
+    bool okay = load_colors(copy_p);
     xfree(copy_p);
     if (okay) {
       return;
@@ -631,9 +570,7 @@ int load_colors(char_u *name)
     retval = source_runtime((char *)buf, DIP_START + DIP_OPT);
   }
   xfree(buf);
-  if (retval == OK) {
-    apply_autocmds(EVENT_COLORSCHEME, (char *)name, curbuf->b_fname, false, curbuf);
-  }
+  apply_autocmds(EVENT_COLORSCHEME, (char *)name, curbuf->b_fname, false, curbuf);
 
   recursive = false;
 
@@ -691,7 +628,7 @@ static int color_numbers_8[28] = { 0, 4, 2, 6,
 
 // Lookup the "cterm" value to be used for color with index "idx" in
 // color_names[].
-// "boldp" will be set to kTrue or kFalse for a foreground color when using 8
+// "boldp" will be set to TRUE or FALSE for a foreground color when using 8
 // colors, otherwise it will be unchanged.
 int lookup_color(const int idx, const bool foreground, TriState *const boldp)
 {
@@ -736,20 +673,20 @@ void set_hl_group(int id, HlAttrs attrs, Dict(highlight) *dict, int link_id)
     return;
   }
 
-  HlGroup *g = &hl_table[idx];
+  HlGroup *g = &HL_TABLE()[idx];
 
   if (link_id > 0) {
     g->sg_cleared = false;
     g->sg_link = link_id;
     g->sg_script_ctx = current_sctx;
-    g->sg_script_ctx.sc_lnum += SOURCING_LNUM;
+    g->sg_script_ctx.sc_lnum += sourcing_lnum;
     g->sg_set |= SG_LINK;
     if (is_default) {
       g->sg_deflink = link_id;
       g->sg_deflink_sctx = current_sctx;
-      g->sg_deflink_sctx.sc_lnum += SOURCING_LNUM;
+      g->sg_deflink_sctx.sc_lnum += sourcing_lnum;
     }
-    goto update;
+    return;
   }
 
   g->sg_cleared = false;
@@ -761,21 +698,34 @@ void set_hl_group(int id, HlAttrs attrs, Dict(highlight) *dict, int link_id)
   g->sg_rgb_sp = attrs.rgb_sp_color;
 
   struct {
-    int *dest; RgbValue val; Object name;
+    char **dest; RgbValue val; Object name;
   } cattrs[] = {
-    { &g->sg_rgb_fg_idx, g->sg_rgb_fg, HAS_KEY(dict->fg) ? dict->fg : dict->foreground },
-    { &g->sg_rgb_bg_idx, g->sg_rgb_bg, HAS_KEY(dict->bg) ? dict->bg : dict->background },
-    { &g->sg_rgb_sp_idx, g->sg_rgb_sp, HAS_KEY(dict->sp) ? dict->sp : dict->special },
+    { &g->sg_rgb_fg_name, g->sg_rgb_fg, HAS_KEY(dict->fg) ? dict->fg : dict->foreground },
+    { &g->sg_rgb_bg_name, g->sg_rgb_bg, HAS_KEY(dict->bg) ? dict->bg : dict->background },
+    { &g->sg_rgb_sp_name, g->sg_rgb_sp, HAS_KEY(dict->sp) ? dict->sp : dict->special },
     { NULL, -1, NIL },
   };
 
+  char hex_name[8];
+  char *name;
+
   for (int j = 0; cattrs[j].dest; j++) {
     if (cattrs[j].val < 0) {
-      *cattrs[j].dest = kColorIdxNone;
-    } else if (cattrs[j].name.type == kObjectTypeString && cattrs[j].name.data.string.size) {
-      name_to_color(cattrs[j].name.data.string.data, cattrs[j].dest);
+      XFREE_CLEAR(*cattrs[j].dest);
+      continue;
+    }
+
+    if (cattrs[j].name.type == kObjectTypeString && cattrs[j].name.data.string.size) {
+      name = cattrs[j].name.data.string.data;
     } else {
-      *cattrs[j].dest = kColorIdxHex;
+      snprintf(hex_name, sizeof(hex_name), "#%06x", cattrs[j].val);
+      name = hex_name;
+    }
+
+    if (!*cattrs[j].dest
+        || STRCMP(*cattrs[j].dest, name) != 0) {
+      xfree(*cattrs[j].dest);
+      *cattrs[j].dest = xstrdup(name);
     }
   }
 
@@ -786,12 +736,10 @@ void set_hl_group(int id, HlAttrs attrs, Dict(highlight) *dict, int link_id)
   g->sg_blend = attrs.hl_blend;
 
   g->sg_script_ctx = current_sctx;
-  g->sg_script_ctx.sc_lnum += SOURCING_LNUM;
-
-  g->sg_attr = hl_get_syn_attr(0, id, attrs);
+  g->sg_script_ctx.sc_lnum += sourcing_lnum;
 
   // 'Normal' is special
-  if (strcmp(g->sg_name_u, "NORMAL") == 0) {
+  if (STRCMP(g->sg_name_u, "NORMAL") == 0) {
     cterm_normal_fg_color = g->sg_cterm_fg;
     cterm_normal_bg_color = g->sg_cterm_bg;
     normal_fg = g->sg_rgb_fg;
@@ -799,17 +747,13 @@ void set_hl_group(int id, HlAttrs attrs, Dict(highlight) *dict, int link_id)
     normal_sp = g->sg_rgb_sp;
     ui_default_colors_set();
   } else {
+    g->sg_attr = hl_get_syn_attr(0, id, attrs);
+
     // a cursor style uses this syn_id, make sure its attribute is updated.
     if (cursor_mode_uses_syn_id(id)) {
       ui_mode_info_set();
     }
   }
-
-update:
-  if (!updating_screen) {
-    redraw_all_later(UPD_NOT_VALID);
-  }
-  need_highlight_changed = true;
 }
 
 /// Handle ":highlight" command
@@ -853,14 +797,14 @@ void do_highlight(const char *line, const bool forceit, const bool init)
   }
 
   // Isolate the name.
-  name_end = (const char *)skiptowhite(line);
+  name_end = (const char *)skiptowhite((const char_u *)line);
   linep = (const char *)skipwhite(name_end);
 
   // Check for "default" argument.
   if (strncmp(line, "default", (size_t)(name_end - line)) == 0) {
     dodefault = true;
     line = linep;
-    name_end = (const char *)skiptowhite(line);
+    name_end = (const char *)skiptowhite((const char_u *)line);
     linep = (const char *)skipwhite(name_end);
   }
 
@@ -873,7 +817,7 @@ void do_highlight(const char *line, const bool forceit, const bool init)
 
   // ":highlight {group-name}": list highlighting for one group.
   if (!doclear && !dolink && ends_excmd((uint8_t)(*linep))) {
-    id = syn_name2id_len(line, (size_t)(name_end - line));
+    id = syn_name2id_len((const char_u *)line, (size_t)(name_end - line));
     if (id == 0) {
       semsg(_("E411: highlight group not found: %s"), line);
     } else {
@@ -892,9 +836,9 @@ void do_highlight(const char *line, const bool forceit, const bool init)
     int to_id;
     HlGroup *hlgroup = NULL;
 
-    from_end = (const char *)skiptowhite(from_start);
+    from_end = (const char *)skiptowhite((const char_u *)from_start);
     to_start = (const char *)skipwhite(from_end);
-    to_end   = (const char *)skiptowhite(to_start);
+    to_end   = (const char *)skiptowhite((const char_u *)to_start);
 
     if (ends_excmd((uint8_t)(*from_start))
         || ends_excmd((uint8_t)(*to_start))) {
@@ -916,11 +860,11 @@ void do_highlight(const char *line, const bool forceit, const bool init)
     }
 
     if (from_id > 0) {
-      hlgroup = &hl_table[from_id - 1];
+      hlgroup = &HL_TABLE()[from_id - 1];
       if (dodefault && (forceit || hlgroup->sg_deflink == 0)) {
         hlgroup->sg_deflink = to_id;
         hlgroup->sg_deflink_sctx = current_sctx;
-        hlgroup->sg_deflink_sctx.sc_lnum += SOURCING_LNUM;
+        hlgroup->sg_deflink_sctx.sc_lnum += sourcing_lnum;
         nlua_set_sctx(&hlgroup->sg_deflink_sctx);
       }
     }
@@ -930,7 +874,7 @@ void do_highlight(const char *line, const bool forceit, const bool init)
       // for the group, unless '!' is used
       if (to_id > 0 && !forceit && !init
           && hl_has_settings(from_id - 1, dodefault)) {
-        if (SOURCING_NAME == NULL && !dodefault) {
+        if (sourcing_name == NULL && !dodefault) {
           emsg(_("E414: group has settings, highlight link ignored"));
         }
       } else if (hlgroup->sg_link != to_id
@@ -941,10 +885,10 @@ void do_highlight(const char *line, const bool forceit, const bool init)
         }
         hlgroup->sg_link = to_id;
         hlgroup->sg_script_ctx = current_sctx;
-        hlgroup->sg_script_ctx.sc_lnum += SOURCING_LNUM;
+        hlgroup->sg_script_ctx.sc_lnum += sourcing_lnum;
         nlua_set_sctx(&hlgroup->sg_script_ctx);
         hlgroup->sg_cleared = false;
-        redraw_all_later(UPD_SOME_VALID);
+        redraw_all_later(SOME_VALID);
 
         // Only call highlight changed() once after multiple changes
         need_highlight_changed = true;
@@ -967,10 +911,10 @@ void do_highlight(const char *line, const bool forceit, const bool init)
       }
       init_highlight(true, true);
       highlight_changed();
-      redraw_all_later(UPD_NOT_VALID);
+      redraw_all_later(NOT_VALID);
       return;
     }
-    name_end = (const char *)skiptowhite(line);
+    name_end = (const char *)skiptowhite((const char_u *)line);
     linep = (const char *)skipwhite(name_end);
   }
 
@@ -987,19 +931,19 @@ void do_highlight(const char *line, const bool forceit, const bool init)
   }
 
   // Make a copy so we can check if any attribute actually changed
-  item_before = hl_table[idx];
-  is_normal_group = (strcmp(hl_table[idx].sg_name_u, "NORMAL") == 0);
+  item_before = HL_TABLE()[idx];
+  is_normal_group = (STRCMP(HL_TABLE()[idx].sg_name_u, "NORMAL") == 0);
 
   // Clear the highlighting for ":hi clear {group}" and ":hi clear".
   if (doclear || (forceit && init)) {
     highlight_clear(idx);
     if (!doclear) {
-      hl_table[idx].sg_set = 0;
+      HL_TABLE()[idx].sg_set = 0;
     }
   }
 
-  char key[64];
-  char arg[512];
+  char *key = NULL;
+  char *arg = NULL;
   if (!doclear) {
     while (!ends_excmd((uint8_t)(*linep))) {
       key_start = linep;
@@ -1014,21 +958,15 @@ void do_highlight(const char *line, const bool forceit, const bool init)
       while (*linep && !ascii_iswhite(*linep) && *linep != '=') {
         linep++;
       }
-      size_t key_len = (size_t)(linep - key_start);
-      if (key_len > sizeof(key) - 1) {
-        emsg(_("E423: Illegal argument"));
-        error = true;
-        break;
-      }
-      memcpy(key, key_start, key_len);
-      key[key_len] = NUL;
-      vim_strup((char_u *)key);
+      xfree(key);
+      key = (char *)vim_strnsave_up((const char_u *)key_start,
+                                    (size_t)(linep - key_start));
       linep = (const char *)skipwhite(linep);
 
       if (strcmp(key, "NONE") == 0) {
-        if (!init || hl_table[idx].sg_set == 0) {
+        if (!init || HL_TABLE()[idx].sg_set == 0) {
           if (!init) {
-            hl_table[idx].sg_set |= SG_CTERM + SG_GUI;
+            HL_TABLE()[idx].sg_set |= SG_CTERM + SG_GUI;
           }
           highlight_clear(idx);
         }
@@ -1055,21 +993,15 @@ void do_highlight(const char *line, const bool forceit, const bool init)
         }
       } else {
         arg_start = linep;
-        linep = (const char *)skiptowhite(linep);
+        linep = (const char *)skiptowhite((const char_u *)linep);
       }
       if (linep == arg_start) {
         semsg(_("E417: missing argument: %s"), key_start);
         error = true;
         break;
       }
-      size_t arg_len = (size_t)(linep - arg_start);
-      if (arg_len > sizeof(arg) - 1) {
-        emsg(_("E423: Illegal argument"));
-        error = true;
-        break;
-      }
-      memcpy(arg, arg_start, arg_len);
-      arg[arg_len] = NUL;
+      xfree(arg);
+      arg = xstrndup(arg_start, (size_t)(linep - arg_start));
 
       if (*linep == '\'') {
         linep++;
@@ -1084,7 +1016,7 @@ void do_highlight(const char *line, const bool forceit, const bool init)
         int i;
         while (arg[off] != NUL) {
           for (i = ARRAY_SIZE(hl_attr_table); --i >= 0;) {
-            len = (int)strlen(hl_name_table[i]);
+            len = (int)STRLEN(hl_name_table[i]);
             if (STRNICMP(arg + off, hl_name_table[i], len) == 0) {
               attr |= hl_attr_table[i];
               off += len;
@@ -1104,34 +1036,34 @@ void do_highlight(const char *line, const bool forceit, const bool init)
           break;
         }
         if (*key == 'C') {
-          if (!init || !(hl_table[idx].sg_set & SG_CTERM)) {
+          if (!init || !(HL_TABLE()[idx].sg_set & SG_CTERM)) {
             if (!init) {
-              hl_table[idx].sg_set |= SG_CTERM;
+              HL_TABLE()[idx].sg_set |= SG_CTERM;
             }
-            hl_table[idx].sg_cterm = attr;
-            hl_table[idx].sg_cterm_bold = false;
+            HL_TABLE()[idx].sg_cterm = attr;
+            HL_TABLE()[idx].sg_cterm_bold = false;
           }
         } else if (*key == 'G') {
-          if (!init || !(hl_table[idx].sg_set & SG_GUI)) {
+          if (!init || !(HL_TABLE()[idx].sg_set & SG_GUI)) {
             if (!init) {
-              hl_table[idx].sg_set |= SG_GUI;
+              HL_TABLE()[idx].sg_set |= SG_GUI;
             }
-            hl_table[idx].sg_gui = attr;
+            HL_TABLE()[idx].sg_gui = attr;
           }
         }
-      } else if (strcmp(key, "FONT") == 0) {
+      } else if (STRCMP(key, "FONT") == 0) {
         // in non-GUI fonts are simply ignored
-      } else if (strcmp(key, "CTERMFG") == 0 || strcmp(key, "CTERMBG") == 0) {
-        if (!init || !(hl_table[idx].sg_set & SG_CTERM)) {
+      } else if (STRCMP(key, "CTERMFG") == 0 || STRCMP(key, "CTERMBG") == 0) {
+        if (!init || !(HL_TABLE()[idx].sg_set & SG_CTERM)) {
           if (!init) {
-            hl_table[idx].sg_set |= SG_CTERM;
+            HL_TABLE()[idx].sg_set |= SG_CTERM;
           }
 
           // When setting the foreground color, and previously the "bold"
           // flag was set for a light color, reset it now
-          if (key[5] == 'F' && hl_table[idx].sg_cterm_bold) {
-            hl_table[idx].sg_cterm &= ~HL_BOLD;
-            hl_table[idx].sg_cterm_bold = false;
+          if (key[5] == 'F' && HL_TABLE()[idx].sg_cterm_bold) {
+            HL_TABLE()[idx].sg_cterm &= ~HL_BOLD;
+            HL_TABLE()[idx].sg_cterm_bold = false;
           }
 
           if (ascii_isdigit(*arg)) {
@@ -1175,21 +1107,21 @@ void do_highlight(const char *line, const bool forceit, const bool init)
             // set/reset bold attribute to get light foreground
             // colors (on some terminals, e.g. "linux")
             if (bold == kTrue) {
-              hl_table[idx].sg_cterm |= HL_BOLD;
-              hl_table[idx].sg_cterm_bold = true;
+              HL_TABLE()[idx].sg_cterm |= HL_BOLD;
+              HL_TABLE()[idx].sg_cterm_bold = true;
             } else if (bold == kFalse) {
-              hl_table[idx].sg_cterm &= ~HL_BOLD;
+              HL_TABLE()[idx].sg_cterm &= ~HL_BOLD;
             }
           }
           // Add one to the argument, to avoid zero.  Zero is used for
           // "NONE", then "color" is -1.
           if (key[5] == 'F') {
-            hl_table[idx].sg_cterm_fg = color + 1;
+            HL_TABLE()[idx].sg_cterm_fg = color + 1;
             if (is_normal_group) {
               cterm_normal_fg_color = color + 1;
             }
           } else {
-            hl_table[idx].sg_cterm_bg = color + 1;
+            HL_TABLE()[idx].sg_cterm_bg = color + 1;
             if (is_normal_group) {
               cterm_normal_bg_color = color + 1;
               if (!ui_rgb_attached()) {
@@ -1207,7 +1139,7 @@ void do_highlight(const char *line, const bool forceit, const bool init)
                   if (dark != -1
                       && dark != (*p_bg == 'd')
                       && !option_was_set("bg")) {
-                    set_option_value_give_err("bg", 0L, (dark ? "dark" : "light"), 0);
+                    set_option_value("bg", 0L, (dark ? "dark" : "light"), 0);
                     reset_option_was_set("bg");
                   }
                 }
@@ -1216,94 +1148,95 @@ void do_highlight(const char *line, const bool forceit, const bool init)
           }
         }
       } else if (strcmp(key, "GUIFG") == 0) {
-        int *indexp = &hl_table[idx].sg_rgb_fg_idx;
+        char **namep = &HL_TABLE()[idx].sg_rgb_fg_name;
 
-        if (!init || !(hl_table[idx].sg_set & SG_GUI)) {
+        if (!init || !(HL_TABLE()[idx].sg_set & SG_GUI)) {
           if (!init) {
-            hl_table[idx].sg_set |= SG_GUI;
+            HL_TABLE()[idx].sg_set |= SG_GUI;
           }
 
-          RgbValue old_color = hl_table[idx].sg_rgb_fg;
-          int old_idx = hl_table[idx].sg_rgb_fg_idx;
-
-          if (strcmp(arg, "NONE") != 0) {
-            hl_table[idx].sg_rgb_fg = name_to_color(arg, indexp);
-          } else {
-            hl_table[idx].sg_rgb_fg = -1;
-            hl_table[idx].sg_rgb_fg_idx = kColorIdxNone;
+          if (*namep == NULL || STRCMP(*namep, arg) != 0) {
+            xfree(*namep);
+            if (strcmp(arg, "NONE") != 0) {
+              *namep = xstrdup(arg);
+              HL_TABLE()[idx].sg_rgb_fg = name_to_color(arg);
+            } else {
+              *namep = NULL;
+              HL_TABLE()[idx].sg_rgb_fg = -1;
+            }
+            did_change = true;
           }
-
-          did_change = hl_table[idx].sg_rgb_fg != old_color || hl_table[idx].sg_rgb_fg != old_idx;
         }
 
         if (is_normal_group) {
-          normal_fg = hl_table[idx].sg_rgb_fg;
+          normal_fg = HL_TABLE()[idx].sg_rgb_fg;
         }
-      } else if (strcmp(key, "GUIBG") == 0) {
-        int *indexp = &hl_table[idx].sg_rgb_bg_idx;
+      } else if (STRCMP(key, "GUIBG") == 0) {
+        char **const namep = &HL_TABLE()[idx].sg_rgb_bg_name;
 
-        if (!init || !(hl_table[idx].sg_set & SG_GUI)) {
+        if (!init || !(HL_TABLE()[idx].sg_set & SG_GUI)) {
           if (!init) {
-            hl_table[idx].sg_set |= SG_GUI;
+            HL_TABLE()[idx].sg_set |= SG_GUI;
           }
 
-          RgbValue old_color = hl_table[idx].sg_rgb_bg;
-          int old_idx = hl_table[idx].sg_rgb_bg_idx;
-
-          if (strcmp(arg, "NONE") != 0) {
-            hl_table[idx].sg_rgb_bg = name_to_color(arg, indexp);
-          } else {
-            hl_table[idx].sg_rgb_bg = -1;
-            hl_table[idx].sg_rgb_bg_idx = kColorIdxNone;
+          if (*namep == NULL || STRCMP(*namep, arg) != 0) {
+            xfree(*namep);
+            if (STRCMP(arg, "NONE") != 0) {
+              *namep = xstrdup(arg);
+              HL_TABLE()[idx].sg_rgb_bg = name_to_color(arg);
+            } else {
+              *namep = NULL;
+              HL_TABLE()[idx].sg_rgb_bg = -1;
+            }
+            did_change = true;
           }
-
-          did_change = hl_table[idx].sg_rgb_bg != old_color || hl_table[idx].sg_rgb_bg != old_idx;
         }
 
         if (is_normal_group) {
-          normal_bg = hl_table[idx].sg_rgb_bg;
+          normal_bg = HL_TABLE()[idx].sg_rgb_bg;
         }
       } else if (strcmp(key, "GUISP") == 0) {
-        int *indexp = &hl_table[idx].sg_rgb_sp_idx;
+        char **const namep = &HL_TABLE()[idx].sg_rgb_sp_name;
 
-        if (!init || !(hl_table[idx].sg_set & SG_GUI)) {
+        if (!init || !(HL_TABLE()[idx].sg_set & SG_GUI)) {
           if (!init) {
-            hl_table[idx].sg_set |= SG_GUI;
+            HL_TABLE()[idx].sg_set |= SG_GUI;
           }
 
-          RgbValue old_color = hl_table[idx].sg_rgb_sp;
-          int old_idx = hl_table[idx].sg_rgb_sp_idx;
-
-          if (strcmp(arg, "NONE") != 0) {
-            hl_table[idx].sg_rgb_sp = name_to_color(arg, indexp);
-          } else {
-            hl_table[idx].sg_rgb_sp = -1;
+          if (*namep == NULL || STRCMP(*namep, arg) != 0) {
+            xfree(*namep);
+            if (strcmp(arg, "NONE") != 0) {
+              *namep = xstrdup(arg);
+              HL_TABLE()[idx].sg_rgb_sp = name_to_color(arg);
+            } else {
+              *namep = NULL;
+              HL_TABLE()[idx].sg_rgb_sp = -1;
+            }
+            did_change = true;
           }
-
-          did_change = hl_table[idx].sg_rgb_sp != old_color || hl_table[idx].sg_rgb_sp != old_idx;
         }
 
         if (is_normal_group) {
-          normal_sp = hl_table[idx].sg_rgb_sp;
+          normal_sp = HL_TABLE()[idx].sg_rgb_sp;
         }
       } else if (strcmp(key, "START") == 0 || strcmp(key, "STOP") == 0) {
         // Ignored for now
       } else if (strcmp(key, "BLEND") == 0) {
         if (strcmp(arg, "NONE") != 0) {
-          hl_table[idx].sg_blend = (int)strtol(arg, NULL, 10);
+          HL_TABLE()[idx].sg_blend = (int)strtol(arg, NULL, 10);
         } else {
-          hl_table[idx].sg_blend = -1;
+          HL_TABLE()[idx].sg_blend = -1;
         }
       } else {
         semsg(_("E423: Illegal argument: %s"), key_start);
         error = true;
         break;
       }
-      hl_table[idx].sg_cleared = false;
+      HL_TABLE()[idx].sg_cleared = false;
 
       // When highlighting has been given for a group, don't link it.
-      if (!init || !(hl_table[idx].sg_set & SG_LINK)) {
-        hl_table[idx].sg_link = 0;
+      if (!init || !(HL_TABLE()[idx].sg_set & SG_LINK)) {
+        HL_TABLE()[idx].sg_link = 0;
       }
 
       // Continue with next argument.
@@ -1311,39 +1244,46 @@ void do_highlight(const char *line, const bool forceit, const bool init)
     }
   }
 
-  if (!error && is_normal_group) {
-    // Need to update all groups, because they might be using "bg" and/or
-    // "fg", which have been changed now.
-    highlight_attr_set_all();
-
-    if (!ui_has(kUILinegrid) && starting == 0) {
-      // Older UIs assume that we clear the screen after normal group is
-      // changed
-      ui_refresh();
-    } else {
-      // TUI and newer UIs will repaint the screen themselves. UPD_NOT_VALID
-      // redraw below will still handle usages of guibg=fg etc.
-      ui_default_colors_set();
-    }
-    did_highlight_changed = true;
-    redraw_all_later(UPD_NOT_VALID);
+  // If there is an error, and it's a new entry, remove it from the table.
+  if (error && idx == highlight_ga.ga_len) {
+    syn_unadd_group();
   } else {
-    set_hl_attr(idx);
+    if (!error && is_normal_group) {
+      // Need to update all groups, because they might be using "bg" and/or
+      // "fg", which have been changed now.
+      highlight_attr_set_all();
+
+      if (!ui_has(kUILinegrid) && starting == 0) {
+        // Older UIs assume that we clear the screen after normal group is
+        // changed
+        ui_refresh();
+      } else {
+        // TUI and newer UIs will repaint the screen themselves. NOT_VALID
+        // redraw below will still handle usages of guibg=fg etc.
+        ui_default_colors_set();
+      }
+      did_highlight_changed = true;
+      redraw_all_later(NOT_VALID);
+    } else {
+      set_hl_attr(idx);
+    }
+    HL_TABLE()[idx].sg_script_ctx = current_sctx;
+    HL_TABLE()[idx].sg_script_ctx.sc_lnum += sourcing_lnum;
+    nlua_set_sctx(&HL_TABLE()[idx].sg_script_ctx);
   }
-  hl_table[idx].sg_script_ctx = current_sctx;
-  hl_table[idx].sg_script_ctx.sc_lnum += SOURCING_LNUM;
-  nlua_set_sctx(&hl_table[idx].sg_script_ctx);
+  xfree(key);
+  xfree(arg);
 
   // Only call highlight_changed() once, after a sequence of highlight
   // commands, and only if an attribute actually changed
   if ((did_change
-       || memcmp(&hl_table[idx], &item_before, sizeof(item_before)) != 0)
+       || memcmp(&HL_TABLE()[idx], &item_before, sizeof(item_before)) != 0)
       && !did_highlight_changed) {
     // Do not trigger a redraw when highlighting is changed while
     // redrawing.  This may happen when evaluating 'statusline' changes the
     // StatusLine group.
     if (!updating_screen) {
-      redraw_all_later(UPD_NOT_VALID);
+      redraw_all_later(NOT_VALID);
     }
     need_highlight_changed = true;
   }
@@ -1352,9 +1292,13 @@ void do_highlight(const char *line, const bool forceit, const bool init)
 #if defined(EXITFREE)
 void free_highlight(void)
 {
+  for (int i = 0; i < highlight_ga.ga_len; i++) {
+    highlight_clear(i);
+    xfree(HL_TABLE()[i].sg_name);
+    xfree(HL_TABLE()[i].sg_name_u);
+  }
   ga_clear(&highlight_ga);
   map_destroy(cstr_t, int)(&highlight_unames);
-  arena_mem_free(arena_finish(&highlight_arena));
 }
 
 #endif
@@ -1372,42 +1316,42 @@ void restore_cterm_colors(void)
 
 /// @param check_link  if true also check for an existing link.
 ///
-/// @return true if highlight group "idx" has any settings.
+/// @return TRUE if highlight group "idx" has any settings.
 static int hl_has_settings(int idx, bool check_link)
 {
-  return hl_table[idx].sg_cleared == 0
-         && (hl_table[idx].sg_attr != 0
-             || hl_table[idx].sg_cterm_fg != 0
-             || hl_table[idx].sg_cterm_bg != 0
-             || hl_table[idx].sg_rgb_fg_idx != kColorIdxNone
-             || hl_table[idx].sg_rgb_bg_idx != kColorIdxNone
-             || hl_table[idx].sg_rgb_sp_idx != kColorIdxNone
-             || (check_link && (hl_table[idx].sg_set & SG_LINK)));
+  return HL_TABLE()[idx].sg_cleared == 0
+         && (HL_TABLE()[idx].sg_attr != 0
+             || HL_TABLE()[idx].sg_cterm_fg != 0
+             || HL_TABLE()[idx].sg_cterm_bg != 0
+             || HL_TABLE()[idx].sg_rgb_fg_name != NULL
+             || HL_TABLE()[idx].sg_rgb_bg_name != NULL
+             || HL_TABLE()[idx].sg_rgb_sp_name != NULL
+             || (check_link && (HL_TABLE()[idx].sg_set & SG_LINK)));
 }
 
 /// Clear highlighting for one group.
 static void highlight_clear(int idx)
 {
-  hl_table[idx].sg_cleared = true;
+  HL_TABLE()[idx].sg_cleared = true;
 
-  hl_table[idx].sg_attr = 0;
-  hl_table[idx].sg_cterm = 0;
-  hl_table[idx].sg_cterm_bold = false;
-  hl_table[idx].sg_cterm_fg = 0;
-  hl_table[idx].sg_cterm_bg = 0;
-  hl_table[idx].sg_gui = 0;
-  hl_table[idx].sg_rgb_fg = -1;
-  hl_table[idx].sg_rgb_bg = -1;
-  hl_table[idx].sg_rgb_sp = -1;
-  hl_table[idx].sg_rgb_fg_idx = kColorIdxNone;
-  hl_table[idx].sg_rgb_bg_idx = kColorIdxNone;
-  hl_table[idx].sg_rgb_sp_idx = kColorIdxNone;
-  hl_table[idx].sg_blend = -1;
+  HL_TABLE()[idx].sg_attr = 0;
+  HL_TABLE()[idx].sg_cterm = 0;
+  HL_TABLE()[idx].sg_cterm_bold = false;
+  HL_TABLE()[idx].sg_cterm_fg = 0;
+  HL_TABLE()[idx].sg_cterm_bg = 0;
+  HL_TABLE()[idx].sg_gui = 0;
+  HL_TABLE()[idx].sg_rgb_fg = -1;
+  HL_TABLE()[idx].sg_rgb_bg = -1;
+  HL_TABLE()[idx].sg_rgb_sp = -1;
+  XFREE_CLEAR(HL_TABLE()[idx].sg_rgb_fg_name);
+  XFREE_CLEAR(HL_TABLE()[idx].sg_rgb_bg_name);
+  XFREE_CLEAR(HL_TABLE()[idx].sg_rgb_sp_name);
+  HL_TABLE()[idx].sg_blend = -1;
   // Restore default link and context if they exist. Otherwise clears.
-  hl_table[idx].sg_link = hl_table[idx].sg_deflink;
+  HL_TABLE()[idx].sg_link = HL_TABLE()[idx].sg_deflink;
   // Since we set the default link, set the location to where the default
   // link was set.
-  hl_table[idx].sg_script_ctx = hl_table[idx].sg_deflink_sctx;
+  HL_TABLE()[idx].sg_script_ctx = HL_TABLE()[idx].sg_deflink_sctx;
 }
 
 /// \addtogroup LIST_XXX
@@ -1419,15 +1363,10 @@ static void highlight_clear(int idx)
 
 static void highlight_list_one(const int id)
 {
-  const HlGroup *sgp = &hl_table[id - 1];  // index is ID minus one
+  const HlGroup *sgp = &HL_TABLE()[id - 1];  // index is ID minus one
   bool didh = false;
 
-  if (message_filtered((char *)sgp->sg_name)) {
-    return;
-  }
-
-  // don't list specialized groups if a parent is used instead
-  if (sgp->sg_parent && sgp->sg_cleared) {
+  if (message_filtered(sgp->sg_name)) {
     return;
   }
 
@@ -1440,13 +1379,12 @@ static void highlight_list_one(const int id)
 
   didh = highlight_list_arg(id, didh, LIST_ATTR,
                             sgp->sg_gui, NULL, "gui");
-  char hexbuf[8];
-  didh = highlight_list_arg(id, didh, LIST_STRING, 0,
-                            coloridx_to_name(sgp->sg_rgb_fg_idx, sgp->sg_rgb_fg, hexbuf), "guifg");
-  didh = highlight_list_arg(id, didh, LIST_STRING, 0,
-                            coloridx_to_name(sgp->sg_rgb_bg_idx, sgp->sg_rgb_bg, hexbuf), "guibg");
-  didh = highlight_list_arg(id, didh, LIST_STRING, 0,
-                            coloridx_to_name(sgp->sg_rgb_sp_idx, sgp->sg_rgb_sp, hexbuf), "guisp");
+  didh = highlight_list_arg(id, didh, LIST_STRING,
+                            0, sgp->sg_rgb_fg_name, "guifg");
+  didh = highlight_list_arg(id, didh, LIST_STRING,
+                            0, sgp->sg_rgb_bg_name, "guibg");
+  didh = highlight_list_arg(id, didh, LIST_STRING,
+                            0, sgp->sg_rgb_sp_name, "guisp");
 
   didh = highlight_list_arg(id, didh, LIST_INT,
                             sgp->sg_blend + 1, NULL, "blend");
@@ -1456,7 +1394,7 @@ static void highlight_list_one(const int id)
     didh = true;
     msg_puts_attr("links to", HL_ATTR(HLF_D));
     msg_putchar(' ');
-    msg_outtrans((char *)hl_table[hl_table[id - 1].sg_link - 1].sg_name);
+    msg_outtrans(HL_TABLE()[HL_TABLE()[id - 1].sg_link - 1].sg_name);
   }
 
   if (!didh) {
@@ -1467,21 +1405,19 @@ static void highlight_list_one(const int id)
   }
 }
 
-Dictionary get_global_hl_defs(Arena *arena)
+Dictionary get_global_hl_defs(void)
 {
-  Dictionary rv = arena_dict(arena, (size_t)highlight_ga.ga_len);
-  for (int i = 1; i <= highlight_ga.ga_len; i++) {
+  Dictionary rv = ARRAY_DICT_INIT;
+  for (int i = 1; i <= highlight_ga.ga_len && !got_int; i++) {
     Dictionary attrs = ARRAY_DICT_INIT;
-    HlGroup *h = &hl_table[i - 1];
+    HlGroup *h = &HL_TABLE()[i - 1];
     if (h->sg_attr > 0) {
-      attrs = arena_dict(arena, HLATTRS_DICT_SIZE);
-      hlattrs2dict(&attrs, syn_attr2entry(h->sg_attr), true);
+      attrs = hlattrs2dict(syn_attr2entry(h->sg_attr), true);
     } else if (h->sg_link > 0) {
-      attrs = arena_dict(arena, 1);
-      char *link = (char *)hl_table[h->sg_link - 1].sg_name;
-      PUT_C(attrs, "link", STRING_OBJ(cstr_as_string(link)));
+      const char *link = (const char *)HL_TABLE()[h->sg_link - 1].sg_name;
+      PUT(attrs, "link", STRING_OBJ(cstr_to_string(link)));
     }
-    PUT_C(rv, (char *)h->sg_name, DICTIONARY_OBJ(attrs));
+    PUT(rv, (const char *)h->sg_name, DICTIONARY_OBJ(attrs));
   }
 
   return rv;
@@ -1492,7 +1428,7 @@ Dictionary get_global_hl_defs(Arena *arena)
 /// @param type one of \ref LIST_XXX
 /// @param iarg integer argument used if \p type == LIST_INT
 /// @param sarg string used if \p type == LIST_STRING
-static bool highlight_list_arg(const int id, bool didh, const int type, int iarg, const char *sarg,
+static bool highlight_list_arg(const int id, bool didh, const int type, int iarg, char *const sarg,
                                const char *const name)
 {
   char buf[100];
@@ -1501,7 +1437,7 @@ static bool highlight_list_arg(const int id, bool didh, const int type, int iarg
     return false;
   }
   if (type == LIST_STRING ? (sarg != NULL) : (iarg != 0)) {
-    const char *ts = buf;
+    char *ts = buf;
     if (type == LIST_INT) {
       snprintf((char *)buf, sizeof(buf), "%d", iarg - 1);
     } else if (type == LIST_STRING) {
@@ -1519,14 +1455,14 @@ static bool highlight_list_arg(const int id, bool didh, const int type, int iarg
       }
     }
 
-    (void)syn_list_header(didh, vim_strsize((char *)ts) + (int)strlen(name) + 1, id, false);
+    (void)syn_list_header(didh, vim_strsize((char_u *)ts) + (int)STRLEN(name) + 1, id, false);
     didh = true;
     if (!got_int) {
       if (*name != NUL) {
         msg_puts_attr(name, HL_ATTR(HLF_D));
         msg_puts_attr("=", HL_ATTR(HLF_D));
       }
-      msg_outtrans((char *)ts);
+      msg_outtrans((char_u *)ts);
     }
   }
   return didh;
@@ -1549,9 +1485,9 @@ const char *highlight_has_attr(const int id, const int flag, const int modec)
   }
 
   if (modec == 'g') {
-    attr = hl_table[id - 1].sg_gui;
+    attr = HL_TABLE()[id - 1].sg_gui;
   } else {
-    attr = hl_table[id - 1].sg_cterm;
+    attr = HL_TABLE()[id - 1].sg_cterm;
   }
 
   return (attr & flag) ? "1" : NULL;
@@ -1592,11 +1528,11 @@ const char *highlight_color(const int id, const char *const what, const int mode
   if (modec == 'g') {
     if (what[2] == '#' && ui_rgb_attached()) {
       if (fg) {
-        n = hl_table[id - 1].sg_rgb_fg;
+        n = HL_TABLE()[id - 1].sg_rgb_fg;
       } else if (sp) {
-        n = hl_table[id - 1].sg_rgb_sp;
+        n = HL_TABLE()[id - 1].sg_rgb_sp;
       } else {
-        n = hl_table[id - 1].sg_rgb_bg;
+        n = HL_TABLE()[id - 1].sg_rgb_bg;
       }
       if (n < 0 || n > 0xffffff) {
         return NULL;
@@ -1605,21 +1541,21 @@ const char *highlight_color(const int id, const char *const what, const int mode
       return name;
     }
     if (fg) {
-      return coloridx_to_name(hl_table[id - 1].sg_rgb_fg_idx, hl_table[id - 1].sg_rgb_fg, name);
-    } else if (sp) {
-      return coloridx_to_name(hl_table[id - 1].sg_rgb_sp_idx, hl_table[id - 1].sg_rgb_sp, name);
-    } else {
-      return coloridx_to_name(hl_table[id - 1].sg_rgb_bg_idx, hl_table[id - 1].sg_rgb_bg, name);
+      return (const char *)HL_TABLE()[id - 1].sg_rgb_fg_name;
     }
+    if (sp) {
+      return (const char *)HL_TABLE()[id - 1].sg_rgb_sp_name;
+    }
+    return (const char *)HL_TABLE()[id - 1].sg_rgb_bg_name;
   }
   if (font || sp) {
     return NULL;
   }
   if (modec == 'c') {
     if (fg) {
-      n = hl_table[id - 1].sg_cterm_fg - 1;
+      n = HL_TABLE()[id - 1].sg_cterm_fg - 1;
     } else {
-      n = hl_table[id - 1].sg_cterm_bg - 1;
+      n = HL_TABLE()[id - 1].sg_cterm_bg - 1;
     }
     if (n < 0) {
       return NULL;
@@ -1650,7 +1586,7 @@ bool syn_list_header(const bool did_header, const int outlen, const int id, bool
     if (got_int) {
       return true;
     }
-    msg_outtrans((char *)hl_table[id - 1].sg_name);
+    msg_outtrans(HL_TABLE()[id - 1].sg_name);
     name_col = msg_col;
     endcol = 15;
   } else if ((ui_has(kUIMessages) || msg_silent) && !force_newline) {
@@ -1694,7 +1630,7 @@ bool syn_list_header(const bool did_header, const int outlen, const int id, bool
 static void set_hl_attr(int idx)
 {
   HlAttrs at_en = HLATTRS_INIT;
-  HlGroup *sgp = hl_table + idx;
+  HlGroup *sgp = HL_TABLE() + idx;
 
   at_en.cterm_ae_attr = (int16_t)sgp->sg_cterm;
   at_en.cterm_fg_color = sgp->sg_cterm_fg;
@@ -1703,9 +1639,9 @@ static void set_hl_attr(int idx)
   // FIXME(tarruda): The "unset value" for rgb is -1, but since hlgroup is
   // initialized with 0(by garray functions), check for sg_rgb_{f,b}g_name
   // before setting attr_entry->{f,g}g_color to a other than -1
-  at_en.rgb_fg_color = sgp->sg_rgb_fg_idx != kColorIdxNone ? sgp->sg_rgb_fg : -1;
-  at_en.rgb_bg_color = sgp->sg_rgb_bg_idx != kColorIdxNone ? sgp->sg_rgb_bg : -1;
-  at_en.rgb_sp_color = sgp->sg_rgb_sp_idx != kColorIdxNone ? sgp->sg_rgb_sp : -1;
+  at_en.rgb_fg_color = sgp->sg_rgb_fg_name ? sgp->sg_rgb_fg : -1;
+  at_en.rgb_bg_color = sgp->sg_rgb_bg_name ? sgp->sg_rgb_bg : -1;
+  at_en.rgb_sp_color = sgp->sg_rgb_sp_name ? sgp->sg_rgb_sp : -1;
   at_en.hl_blend = sgp->sg_blend;
 
   sgp->sg_attr = hl_get_syn_attr(0, idx + 1, at_en);
@@ -1719,19 +1655,14 @@ static void set_hl_attr(int idx)
 int syn_name2id(const char *name)
   FUNC_ATTR_NONNULL_ALL
 {
-  if (name[0] == '@') {
-    // if we look up @aaa.bbb, we have to consider @aaa as well
-    return syn_check_group(name, strlen(name));
-  } else {
-    return syn_name2id_len(name, strlen(name));
-  }
+  return syn_name2id_len((char_u *)name, STRLEN(name));
 }
 
 /// Lookup a highlight group name and return its ID.
 ///
 /// @param highlight name e.g. 'Cursor', 'Normal'
 /// @return the highlight id, else 0 if \p name does not exist
-int syn_name2id_len(const char *name, size_t len)
+int syn_name2id_len(const char_u *name, size_t len)
   FUNC_ATTR_NONNULL_ALL
 {
   char name_u[MAX_SYN_NAME + 1];
@@ -1764,7 +1695,7 @@ int syn_name2attr(const char_u *name)
   return 0;
 }
 
-/// Return true if highlight group "name" exists.
+/// Return TRUE if highlight group "name" exists.
 int highlight_exists(const char *name)
 {
   return syn_name2id(name) > 0;
@@ -1777,7 +1708,7 @@ char_u *syn_id2name(int id)
   if (id <= 0 || id > highlight_ga.ga_len) {
     return (char_u *)"";
   }
-  return hl_table[id - 1].sg_name;
+  return HL_TABLE()[id - 1].sg_name;
 }
 
 /// Find highlight group name in the table and return its ID.
@@ -1793,9 +1724,9 @@ int syn_check_group(const char *name, size_t len)
     emsg(_(e_highlight_group_name_too_long));
     return 0;
   }
-  int id = syn_name2id_len(name, len);
+  int id = syn_name2id_len((char_u *)name, len);
   if (id == 0) {  // doesn't exist yet
-    return syn_add_group(name, len);
+    return syn_add_group(vim_strnsave((char_u *)name, len));
   }
   return id;
 }
@@ -1804,28 +1735,22 @@ int syn_check_group(const char *name, size_t len)
 ///
 /// @param name must be an allocated string, it will be consumed.
 /// @return 0 for failure, else the allocated group id
-/// @see syn_check_group
-static int syn_add_group(const char *name, size_t len)
+/// @see syn_check_group syn_unadd_group
+static int syn_add_group(char_u *name)
 {
-  // Check that the name is ASCII letters, digits and underscore.
-  for (size_t i = 0; i < len; i++) {
-    int c = (uint8_t)name[i];
-    if (!vim_isprintc(c)) {
-      emsg(_("E669: Unprintable character in group name"));
-      return 0;
-    } else if (!ASCII_ISALNUM(c) && c != '_' && c != '.' && c != '@') {
-      // '.' and '@' are allowed characters for use with treesitter capture names.
-      msg_source(HL_ATTR(HLF_W));
-      emsg(_(e_highlight_group_name_invalid_char));
-      return 0;
-    }
-  }
+  char_u *p;
 
-  int scoped_parent = 0;
-  if (len > 1 && name[0] == '@') {
-    char *delim = xmemrchr(name, '.', len);
-    if (delim) {
-      scoped_parent = syn_check_group(name, (size_t)(delim - name));
+  // Check that the name is ASCII letters, digits and underscore.
+  for (p = name; *p != NUL; p++) {
+    if (!vim_isprintc(*p)) {
+      emsg(_("E669: Unprintable character in group name"));
+      xfree(name);
+      return 0;
+    } else if (!ASCII_ISALNUM(*p) && *p != '_') {
+      // This is an error, but since there previously was no check only give a warning.
+      msg_source(HL_ATTR(HLF_W));
+      msg(_("W18: Invalid character in group name"));
+      break;
     }
   }
 
@@ -1833,55 +1758,53 @@ static int syn_add_group(const char *name, size_t len)
   if (highlight_ga.ga_data == NULL) {
     highlight_ga.ga_itemsize = sizeof(HlGroup);
     ga_set_growsize(&highlight_ga, 10);
-    // 265 builtin groups, will always be used, plus some space
-    ga_grow(&highlight_ga, 300);
   }
 
   if (highlight_ga.ga_len >= MAX_HL_ID) {
     emsg(_("E849: Too many highlight and syntax groups"));
+    xfree(name);
     return 0;
   }
 
+  char *const name_up = (char *)vim_strsave_up(name);
+
   // Append another syntax_highlight entry.
   HlGroup *hlgp = GA_APPEND_VIA_PTR(HlGroup, &highlight_ga);
-  CLEAR_POINTER(hlgp);
-  hlgp->sg_name = (char_u *)arena_memdupz(&highlight_arena, name, len);
+  memset(hlgp, 0, sizeof(*hlgp));
+  hlgp->sg_name = name;
   hlgp->sg_rgb_bg = -1;
   hlgp->sg_rgb_fg = -1;
   hlgp->sg_rgb_sp = -1;
-  hlgp->sg_rgb_bg_idx = kColorIdxNone;
-  hlgp->sg_rgb_fg_idx = kColorIdxNone;
-  hlgp->sg_rgb_sp_idx = kColorIdxNone;
   hlgp->sg_blend = -1;
-  hlgp->sg_name_u = arena_memdupz(&highlight_arena, name, len);
-  hlgp->sg_parent = scoped_parent;
-  // will get set to false by caller if settings are added
-  hlgp->sg_cleared = true;
-  vim_strup((char_u *)hlgp->sg_name_u);
+  hlgp->sg_name_u = name_up;
 
   int id = highlight_ga.ga_len;  // ID is index plus one
 
-  map_put(cstr_t, int)(&highlight_unames, hlgp->sg_name_u, id);
+  map_put(cstr_t, int)(&highlight_unames, name_up, id);
 
   return id;
+}
+
+/// When, just after calling syn_add_group(), an error is discovered, this
+/// function deletes the new name.
+static void syn_unadd_group(void)
+{
+  highlight_ga.ga_len--;
+  HlGroup *item = &HL_TABLE()[highlight_ga.ga_len];
+  map_del(cstr_t, int)(&highlight_unames, item->sg_name_u);
+  xfree(item->sg_name);
+  xfree(item->sg_name_u);
 }
 
 /// Translate a group ID to highlight attributes.
 /// @see syn_attr2entry
 int syn_id2attr(int hl_id)
 {
-  return syn_ns_id2attr(-1, hl_id, false);
-}
+  hl_id = syn_get_final_id(hl_id);
+  HlGroup *sgp = &HL_TABLE()[hl_id - 1];  // index is ID minus one
 
-int syn_ns_id2attr(int ns_id, int hl_id, bool optional)
-{
-  hl_id = syn_ns_get_final_id(&ns_id, hl_id);
-  HlGroup *sgp = &hl_table[hl_id - 1];  // index is ID minus one
-
-  int attr = ns_get_hl(&ns_id, hl_id, false, sgp->sg_set);
-
-  // if a highlight group is optional, don't use the global value
-  if (attr >= 0 || (optional && ns_id > 0)) {
+  int attr = ns_get_hl(-1, hl_id, false, sgp->sg_set);
+  if (attr >= 0) {
     return attr;
   }
   return sgp->sg_attr;
@@ -1890,27 +1813,21 @@ int syn_ns_id2attr(int ns_id, int hl_id, bool optional)
 /// Translate a group ID to the final group ID (following links).
 int syn_get_final_id(int hl_id)
 {
-  int id = curwin->w_ns_hl_active;
-  return syn_ns_get_final_id(&id, hl_id);
-}
-
-int syn_ns_get_final_id(int *ns_id, int hl_id)
-{
   int count;
 
   if (hl_id > highlight_ga.ga_len || hl_id < 1) {
-    return 0;  // Can be called from eval!!
+    return 0;                           // Can be called from eval!!
   }
 
   // Follow links until there is no more.
   // Look out for loops!  Break after 100 links.
   for (count = 100; --count >= 0;) {
-    HlGroup *sgp = &hl_table[hl_id - 1];  // index is ID minus one
+    HlGroup *sgp = &HL_TABLE()[hl_id - 1];  // index is ID minus one
 
-    // TODO(bfredl): when using "tmp" attribute (no link) the function might be
+    // ACHTUNG: when using "tmp" attribute (no link) the function might be
     // called twice. it needs be smart enough to remember attr only to
     // syn_id2attr time
-    int check = ns_get_hl(ns_id, hl_id, true, sgp->sg_set);
+    int check = ns_get_hl(-1, hl_id, true, sgp->sg_set);
     if (check == 0) {
       return hl_id;  // how dare! it broke the link!
     } else if (check > 0) {
@@ -1918,13 +1835,10 @@ int syn_ns_get_final_id(int *ns_id, int hl_id)
       continue;
     }
 
-    if (sgp->sg_link > 0 && sgp->sg_link <= highlight_ga.ga_len) {
-      hl_id = sgp->sg_link;
-    } else if (sgp->sg_cleared && sgp->sg_parent > 0) {
-      hl_id = sgp->sg_parent;
-    } else {
+    if (sgp->sg_link == 0 || sgp->sg_link > highlight_ga.ga_len) {
       break;
     }
+    hl_id = sgp->sg_link;
   }
 
   return hl_id;
@@ -1934,21 +1848,15 @@ int syn_ns_get_final_id(int *ns_id, int hl_id)
 void highlight_attr_set_all(void)
 {
   for (int idx = 0; idx < highlight_ga.ga_len; idx++) {
-    HlGroup *sgp = &hl_table[idx];
-    if (sgp->sg_rgb_bg_idx == kColorIdxFg) {
-      sgp->sg_rgb_bg = normal_fg;
-    } else if (sgp->sg_rgb_bg_idx == kColorIdxBg) {
-      sgp->sg_rgb_bg = normal_bg;
+    HlGroup *sgp = &HL_TABLE()[idx];
+    if (sgp->sg_rgb_bg_name != NULL) {
+      sgp->sg_rgb_bg = name_to_color(sgp->sg_rgb_bg_name);
     }
-    if (sgp->sg_rgb_fg_idx == kColorIdxFg) {
-      sgp->sg_rgb_fg = normal_fg;
-    } else if (sgp->sg_rgb_fg_idx == kColorIdxBg) {
-      sgp->sg_rgb_fg = normal_bg;
+    if (sgp->sg_rgb_fg_name != NULL) {
+      sgp->sg_rgb_fg = name_to_color(sgp->sg_rgb_fg_name);
     }
-    if (sgp->sg_rgb_sp_idx == kColorIdxFg) {
-      sgp->sg_rgb_sp = normal_fg;
-    } else if (sgp->sg_rgb_sp_idx == kColorIdxBg) {
-      sgp->sg_rgb_sp = normal_bg;
+    if (sgp->sg_rgb_sp_name != NULL) {
+      sgp->sg_rgb_sp = name_to_color(sgp->sg_rgb_sp_name);
     }
     set_hl_attr(idx);
   }
@@ -1958,10 +1866,10 @@ void highlight_attr_set_all(void)
 static void combine_stl_hlt(int id, int id_S, int id_alt, int hlcnt, int i, int hlf, int *table)
   FUNC_ATTR_NONNULL_ALL
 {
-  HlGroup *const hlt = hl_table;
+  HlGroup *const hlt = HL_TABLE();
 
   if (id_alt == 0) {
-    CLEAR_POINTER(&hlt[hlcnt + i]);
+    memset(&hlt[hlcnt + i], 0, sizeof(HlGroup));
     hlt[hlcnt + i].sg_cterm = highlight_attr[hlf];
     hlt[hlcnt + i].sg_gui = highlight_attr[hlf];
   } else {
@@ -2007,35 +1915,29 @@ void highlight_changed(void)
 
   /// Translate builtin highlight groups into attributes for quick lookup.
   for (int hlf = 0; hlf < HLF_COUNT; hlf++) {
-    id = syn_check_group(hlf_names[hlf], strlen(hlf_names[hlf]));
+    id = syn_check_group(hlf_names[hlf], STRLEN(hlf_names[hlf]));
     if (id == 0) {
       abort();
     }
-    int ns_id = -1;
-    int final_id = syn_ns_get_final_id(&ns_id, id);
+    int final_id = syn_get_final_id(id);
     if (hlf == HLF_SNC) {
       id_SNC = final_id;
     } else if (hlf == HLF_S) {
       id_S = final_id;
     }
 
-    highlight_attr[hlf] = hl_get_ui_attr(ns_id, hlf, final_id,
+    highlight_attr[hlf] = hl_get_ui_attr(hlf, final_id,
                                          (hlf == HLF_INACTIVE || hlf == HLF_LC));
 
     if (highlight_attr[hlf] != highlight_attr_last[hlf]) {
       if (hlf == HLF_MSG) {
         clear_cmdline = true;
-        HlAttrs attrs = syn_attr2entry(highlight_attr[hlf]);
-        msg_grid.blending = attrs.hl_blend > -1;
       }
       ui_call_hl_group_set(cstr_as_string((char *)hlf_names[hlf]),
                            highlight_attr[hlf]);
       highlight_attr_last[hlf] = highlight_attr[hlf];
     }
   }
-
-  // sentinel value. used when no hightlight namespace is active
-  highlight_attr[HLF_COUNT] = 0;
 
   //
   // Setup the user highlights
@@ -2049,7 +1951,7 @@ void highlight_changed(void)
   hlcnt = highlight_ga.ga_len;
   if (id_S == -1) {
     // Make sure id_S is always valid to simplify code below. Use the last entry
-    CLEAR_POINTER(&hl_table[hlcnt + 9]);
+    memset(&HL_TABLE()[hlcnt + 9], 0, sizeof(HlGroup));
     id_S = hlcnt + 10;
   }
   for (int i = 0; i < 9; i++) {
@@ -2077,13 +1979,13 @@ void set_context_in_highlight_cmd(expand_T *xp, const char *arg)
 
   // (part of) subcommand already typed
   if (*arg != NUL) {
-    const char *p = (const char *)skiptowhite(arg);
+    const char *p = (const char *)skiptowhite((const char_u *)arg);
     if (*p != NUL) {  // Past "default" or group name.
       include_default = 0;
       if (strncmp("default", arg, (unsigned)(p - arg)) == 0) {
         arg = (const char *)skipwhite(p);
         xp->xp_pattern = (char *)arg;
-        p = (const char *)skiptowhite(arg);
+        p = (const char *)skiptowhite((const char_u *)arg);
       }
       if (*p != NUL) {                          // past group name
         include_link = 0;
@@ -2093,10 +1995,10 @@ void set_context_in_highlight_cmd(expand_T *xp, const char *arg)
         if (strncmp("link", arg, (unsigned)(p - arg)) == 0
             || strncmp("clear", arg, (unsigned)(p - arg)) == 0) {
           xp->xp_pattern = skipwhite(p);
-          p = (const char *)skiptowhite(xp->xp_pattern);
+          p = (const char *)skiptowhite((char_u *)xp->xp_pattern);
           if (*p != NUL) {  // Past first group name.
             xp->xp_pattern = skipwhite(p);
-            p = (const char *)skiptowhite(xp->xp_pattern);
+            p = (const char *)skiptowhite((char_u *)xp->xp_pattern);
           }
         }
         if (*p != NUL) {  // Past group name(s).
@@ -2146,7 +2048,7 @@ const char *get_highlight_name_ext(expand_T *xp, int idx, bool skip_cleared)
   }
 
   // Items are never removed from the table, skip the ones that were cleared.
-  if (skip_cleared && idx < highlight_ga.ga_len && hl_table[idx].sg_cleared) {
+  if (skip_cleared && idx < highlight_ga.ga_len && HL_TABLE()[idx].sg_cleared) {
     return "";
   }
 
@@ -2164,7 +2066,7 @@ const char *get_highlight_name_ext(expand_T *xp, int idx, bool skip_cleared)
   } else if (idx >= highlight_ga.ga_len) {
     return NULL;
   }
-  return (const char *)hl_table[idx].sg_name;
+  return (const char *)HL_TABLE()[idx].sg_name;
 }
 
 color_name_table_T color_name_table[] = {
@@ -2856,62 +2758,27 @@ color_name_table_T color_name_table[] = {
 /// hex value
 ///
 /// @param[in] name string value to convert to RGB
-/// @param[out] idx index in color table or special value
 /// return the hex value or -1 if could not find a correct value
-RgbValue name_to_color(const char *name, int *idx)
+RgbValue name_to_color(const char *name)
 {
   if (name[0] == '#' && isxdigit(name[1]) && isxdigit(name[2])
       && isxdigit(name[3]) && isxdigit(name[4]) && isxdigit(name[5])
       && isxdigit(name[6]) && name[7] == NUL) {
     // rgb hex string
-    *idx = kColorIdxHex;
     return (RgbValue)strtol((char *)(name + 1), NULL, 16);
   } else if (!STRICMP(name, "bg") || !STRICMP(name, "background")) {
-    *idx = kColorIdxBg;
     return normal_bg;
   } else if (!STRICMP(name, "fg") || !STRICMP(name, "foreground")) {
-    *idx = kColorIdxFg;
     return normal_fg;
   }
 
-  int lo = 0;
-  int hi = ARRAY_SIZE(color_name_table) - 1;  // don't count NULL element
-  while (lo < hi) {
-    int m = (lo + hi) / 2;
-    int cmp = STRICMP(name, color_name_table[m].name);
-    if (cmp < 0) {
-      hi = m;
-    } else if (cmp > 0) {
-      lo = m + 1;
-    } else {  // found match
-      *idx = m;
-      return color_name_table[m].color;
-      break;
+  for (int i = 0; color_name_table[i].name != NULL; i++) {
+    if (!STRICMP(name, color_name_table[i].name)) {
+      return color_name_table[i].color;
     }
   }
 
-  *idx = kColorIdxNone;
   return -1;
-}
-
-const char *coloridx_to_name(int idx, int val, char hexbuf[8])
-{
-  if (idx >= 0) {
-    return color_name_table[idx].name;
-  }
-  switch (idx) {
-  case kColorIdxNone:
-    return NULL;
-  case kColorIdxFg:
-    return "fg";
-  case kColorIdxBg:
-    return "bg";
-  case kColorIdxHex:
-    snprintf(hexbuf, 7 + 1, "#%06x", val);
-    return hexbuf;
-  default:
-    abort();
-  }
 }
 
 int name_to_ctermcolor(const char *name)

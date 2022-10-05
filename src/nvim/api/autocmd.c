@@ -9,9 +9,9 @@
 #include "nvim/api/private/defs.h"
 #include "nvim/api/private/helpers.h"
 #include "nvim/ascii.h"
-#include "nvim/autocmd.h"
 #include "nvim/buffer.h"
 #include "nvim/eval/typval.h"
+#include "nvim/fileio.h"
 #include "nvim/lua/executor.h"
 
 #ifdef INCLUDE_GENERATED_DECLARATIONS
@@ -66,9 +66,7 @@ static int64_t next_autocmd_id = 1;
 ///             - group_name (string): the autocommand group name.
 ///             - desc (string): the autocommand description.
 ///             - event (string): the autocommand event.
-///             - command (string): the autocommand command. Note: this will be empty if a callback is set.
-///             - callback (function|string|nil): Lua function or name of a Vim script function
-///             which is executed when this autocommand is triggered.
+///             - command (string): the autocommand command.
 ///             - once (boolean): whether the autocommand is only run once.
 ///             - pattern (string): the autocommand pattern.
 ///             If the autocommand is buffer local |autocmd-buffer-local|:
@@ -240,7 +238,7 @@ Array nvim_get_autocmds(Dict(get_autocmds) *opts, Error *err)
           assert(pattern_filters[i]);
 
           char *pat = pattern_filters[i];
-          int patlen = (int)strlen(pat);
+          int patlen = (int)STRLEN(pat);
 
           if (aupat_is_buflocal(pat, patlen)) {
             aupat_normalize_buflocal_pat(pattern_buflocal,
@@ -282,28 +280,9 @@ Array nvim_get_autocmds(Dict(get_autocmds) *opts, Error *err)
           PUT(autocmd_info, "desc", CSTR_TO_OBJ(ac->desc));
         }
 
-        if (ac->exec.type == CALLABLE_CB) {
-          PUT(autocmd_info, "command", STRING_OBJ(STRING_INIT));
-
-          Callback *cb = &ac->exec.callable.cb;
-          switch (cb->type) {
-          case kCallbackLua:
-            if (nlua_ref_is_function(cb->data.luaref)) {
-              PUT(autocmd_info, "callback", LUAREF_OBJ(api_new_luaref(cb->data.luaref)));
-            }
-            break;
-          case kCallbackFuncref:
-          case kCallbackPartial:
-            PUT(autocmd_info, "callback", STRING_OBJ(cstr_as_string(callback_to_string(cb))));
-            break;
-          default:
-            abort();
-          }
-        } else {
-          PUT(autocmd_info,
-              "command",
-              STRING_OBJ(cstr_as_string(xstrdup(ac->exec.callable.cmd))));
-        }
+        PUT(autocmd_info,
+            "command",
+            STRING_OBJ(cstr_as_string(aucmd_exec_to_string(ac, ac->exec))));
 
         PUT(autocmd_info,
             "pattern",
@@ -463,8 +442,7 @@ Integer nvim_create_autocmd(uint64_t channel_id, Object event, Dict(create_autoc
     // not do that.
 
     Object *callback = &opts->callback;
-    switch (callback->type) {
-    case kObjectTypeLuaRef:
+    if (callback->type == kObjectTypeLuaRef) {
       if (callback->data.luaref == LUA_NOREF) {
         api_set_error(err,
                       kErrorTypeValidation,
@@ -481,12 +459,10 @@ Integer nvim_create_autocmd(uint64_t channel_id, Object event, Dict(create_autoc
 
       cb.type = kCallbackLua;
       cb.data.luaref = api_new_luaref(callback->data.luaref);
-      break;
-    case kObjectTypeString:
+    } else if (callback->type == kObjectTypeString) {
       cb.type = kCallbackFuncref;
       cb.data.funcref = string_to_cstr(callback->data.string);
-      break;
-    default:
+    } else {
       api_set_error(err,
                     kErrorTypeException,
                     "'callback' must be a lua function or name of vim function");
@@ -549,7 +525,9 @@ Integer nvim_create_autocmd(uint64_t channel_id, Object event, Dict(create_autoc
 
     int retval;
 
-    FOREACH_ITEM(patterns, pat, {
+    for (size_t i = 0; i < patterns.size; i++) {
+      Object pat = patterns.items[i];
+
       // See: TODO(sctx)
       WITH_SCRIPT_CONTEXT(channel_id, {
         retval = autocmd_register(autocmd_id,
@@ -567,7 +545,7 @@ Integer nvim_create_autocmd(uint64_t channel_id, Object event, Dict(create_autoc
         api_set_error(err, kErrorTypeException, "Failed to set autocmd");
         goto cleanup;
       }
-    })
+    }
   });
 
 cleanup:
@@ -779,11 +757,13 @@ void nvim_exec_autocmds(Object event, Dict(exec_autocmds) *opts, Error *err)
   bool modeline = true;
 
   buf_T *buf = curbuf;
+  bool set_buf = false;
 
-  Array patterns = ARRAY_DICT_INIT;
-  Array event_array = ARRAY_DICT_INIT;
-
+  char *pattern = NULL;
   Object *data = NULL;
+  bool set_pattern = false;
+
+  Array event_array = ARRAY_DICT_INIT;
 
   if (!unpack_string_or_array(&event_array, &event, "event", true, err)) {
     goto cleanup;
@@ -822,18 +802,21 @@ void nvim_exec_autocmds(Object event, Dict(exec_autocmds) *opts, Error *err)
     }
 
     buf = find_buffer_by_handle((Buffer)buf_obj.data.integer, err);
+    set_buf = true;
 
     if (ERROR_SET(err)) {
       goto cleanup;
     }
   }
 
-  if (!get_patterns_from_pattern_or_buf(&patterns, opts->pattern, opts->buffer, err)) {
-    goto cleanup;
-  }
+  if (opts->pattern.type != kObjectTypeNil) {
+    if (opts->pattern.type != kObjectTypeString) {
+      api_set_error(err, kErrorTypeValidation, "'pattern' must be a string");
+      goto cleanup;
+    }
 
-  if (patterns.size == 0) {
-    ADD(patterns, STRING_OBJ(STATIC_CSTR_TO_STRING("")));
+    pattern = string_to_cstr(opts->pattern.data.string);
+    set_pattern = true;
   }
 
   if (opts->data.type != kObjectTypeNil) {
@@ -842,15 +825,16 @@ void nvim_exec_autocmds(Object event, Dict(exec_autocmds) *opts, Error *err)
 
   modeline = api_object_to_bool(opts->modeline, "modeline", true, err);
 
+  if (set_pattern && set_buf) {
+    api_set_error(err, kErrorTypeValidation, "must not set 'buffer' and 'pattern'");
+    goto cleanup;
+  }
+
   bool did_aucmd = false;
   FOREACH_ITEM(event_array, event_str, {
     GET_ONE_EVENT(event_nr, event_str, cleanup)
 
-    FOREACH_ITEM(patterns, pat, {
-      char *fname = opts->buffer.type == kObjectTypeNil ? pat.data.string.data : NULL;
-      did_aucmd |=
-        apply_autocmds_group(event_nr, fname, NULL, true, au_group, buf, NULL, data);
-    })
+    did_aucmd |= apply_autocmds_group(event_nr, pattern, NULL, true, au_group, buf, NULL, data);
   })
 
   if (did_aucmd && modeline) {
@@ -859,13 +843,13 @@ void nvim_exec_autocmds(Object event, Dict(exec_autocmds) *opts, Error *err)
 
 cleanup:
   api_free_array(event_array);
-  api_free_array(patterns);
+  XFREE_CLEAR(pattern);
 }
 
 static bool check_autocmd_string_array(Array arr, char *k, Error *err)
 {
-  FOREACH_ITEM(arr, entry, {
-    if (entry.type != kObjectTypeString) {
+  for (size_t i = 0; i < arr.size; i++) {
+    if (arr.items[i].type != kObjectTypeString) {
       api_set_error(err,
                     kErrorTypeValidation,
                     "All entries in '%s' must be strings",
@@ -874,25 +858,25 @@ static bool check_autocmd_string_array(Array arr, char *k, Error *err)
     }
 
     // Disallow newlines in the middle of the line.
-    const String l = entry.data.string;
+    const String l = arr.items[i].data.string;
     if (memchr(l.data, NL, l.size)) {
       api_set_error(err, kErrorTypeValidation,
                     "String cannot contain newlines");
       return false;
     }
-  })
+  }
   return true;
 }
 
 static bool unpack_string_or_array(Array *array, Object *v, char *k, bool required, Error *err)
 {
   if (v->type == kObjectTypeString) {
-    ADD(*array, copy_object(*v, NULL));
+    ADD(*array, copy_object(*v));
   } else if (v->type == kObjectTypeArray) {
     if (!check_autocmd_string_array(v->data.array, k, err)) {
       return false;
     }
-    *array = copy_array(v->data.array, NULL);
+    *array = copy_array(v->data.array);
   } else {
     if (required) {
       api_set_error(err,
@@ -967,8 +951,8 @@ static bool get_patterns_from_pattern_or_buf(Array *patterns, Object pattern, Ob
       }
 
       Array array = v->data.array;
-      FOREACH_ITEM(array, entry, {
-        char *pat = entry.data.string.data;
+      for (size_t i = 0; i < array.size; i++) {
+        char *pat = array.items[i].data.string.data;
         size_t patlen = aucmd_pattern_length(pat);
         while (patlen) {
           ADD(*patterns, STRING_OBJ(cbuf_to_string((char *)pat, patlen)));
@@ -976,15 +960,15 @@ static bool get_patterns_from_pattern_or_buf(Array *patterns, Object pattern, Ob
           pat = aucmd_next_pattern(pat, patlen);
           patlen = aucmd_pattern_length(pat);
         }
-      })
+      }
     } else {
       api_set_error(err,
                     kErrorTypeValidation,
-                    "'pattern' must be a string or table");
+                    "'pattern' must be a string");
       return false;
     }
   } else if (buffer.type != kObjectTypeNil) {
-    if (buffer.type != kObjectTypeInteger && buffer.type != kObjectTypeBuffer) {
+    if (buffer.type != kObjectTypeInteger) {
       api_set_error(err,
                     kErrorTypeValidation,
                     "'buffer' must be an integer");

@@ -244,12 +244,10 @@ function module.run_session(lsession, request_cb, notification_cb, setup_cb, tim
     last_error = nil
     error(err)
   end
-
-  return session.eof_err
 end
 
 function module.run(request_cb, notification_cb, setup_cb, timeout)
-  return module.run_session(session, request_cb, notification_cb, setup_cb, timeout)
+  module.run_session(session, request_cb, notification_cb, setup_cb, timeout)
 end
 
 function module.stop()
@@ -270,25 +268,6 @@ end
 -- v:errmsg will not be updated.
 function module.command(cmd)
   module.request('nvim_command', cmd)
-end
-
-
--- Use for commands which expect nvim to quit.
--- The first argument can also be a timeout.
-function module.expect_exit(fn_or_timeout, ...)
-  local eof_err_msg = 'EOF was received from Nvim. Likely the Nvim process crashed.'
-  if type(fn_or_timeout) == 'function' then
-    eq(eof_err_msg, module.pcall_err(fn_or_timeout, ...))
-  else
-    eq(eof_err_msg, module.pcall_err(function(timeout, fn, ...)
-      fn(...)
-      while session:next_message(timeout) do
-      end
-      if session.eof_err then
-        error(session.eof_err[2])
-      end
-    end, fn_or_timeout, ...))
-  end
 end
 
 -- Evaluates a VimL expression.
@@ -445,25 +424,18 @@ end
 function module.new_argv(...)
   local args = {unpack(module.nvim_argv)}
   table.insert(args, '--headless')
-  if _G._nvim_test_id then
-    -- Set the server name to the test-id for logging. #8519
-    table.insert(args, '--listen')
-    table.insert(args, _G._nvim_test_id)
-  end
   local new_args
   local io_extra
   local env = nil
   local opts = select(1, ...)
-  if type(opts) ~= 'table' then
-    new_args = {...}
-  else
+  if type(opts) == 'table' then
     args = remove_args(args, opts.args_rm)
     if opts.env then
-      local env_opt = {}
+      local env_tbl = {}
       for k, v in pairs(opts.env) do
         assert(type(k) == 'string')
         assert(type(v) == 'string')
-        env_opt[k] = v
+        env_tbl[k] = v
       end
       for _, k in ipairs({
         'HOME',
@@ -479,18 +451,19 @@ function module.new_argv(...)
         'TMPDIR',
         'VIMRUNTIME',
       }) do
-        -- Set these from the environment unless the caller defined them.
-        if not env_opt[k] then
-          env_opt[k] = os.getenv(k)
+        if not env_tbl[k] then
+          env_tbl[k] = os.getenv(k)
         end
       end
       env = {}
-      for k, v in pairs(env_opt) do
+      for k, v in pairs(env_tbl) do
         env[#env + 1] = k .. '=' .. v
       end
     end
     new_args = opts.args or {}
     io_extra = opts.io_extra
+  else
+    new_args = {...}
   end
   for _, arg in ipairs(new_args) do
     table.insert(args, arg)
@@ -529,17 +502,9 @@ function module.has_powershell()
   return module.eval('executable("'..(iswin() and 'powershell' or 'pwsh')..'")') == 1
 end
 
---- Sets Nvim shell to powershell.
----
---- @param fake (boolean) If true, a fake will be used if powershell is not
----             found on the system.
---- @returns true if powershell was found on the system, else false.
-function module.set_shell_powershell(fake)
-  local found = module.has_powershell()
-  if not fake then
-    assert(found)
-  end
-  local shell = found and (iswin() and 'powershell' or 'pwsh') or module.testprg('pwsh-test')
+function module.set_shell_powershell()
+  local shell = iswin() and 'powershell' or 'pwsh'
+  assert(module.has_powershell())
   local set_encoding = '[Console]::InputEncoding=[Console]::OutputEncoding=[System.Text.Encoding]::UTF8;'
   local cmd = set_encoding..'Remove-Item -Force '..table.concat(iswin()
     and {'alias:cat', 'alias:echo', 'alias:sleep'}
@@ -547,11 +512,10 @@ function module.set_shell_powershell(fake)
   module.exec([[
     let &shell = ']]..shell..[['
     set shellquote= shellxquote=
-    let &shellcmdflag = '-NoLogo -NoProfile -ExecutionPolicy RemoteSigned -Command ]]..cmd..[['
     let &shellpipe = '2>&1 | Out-File -Encoding UTF8 %s; exit $LastExitCode'
-    let &shellredir = '-RedirectStandardOutput %s -NoNewWindow -Wait'
+    let &shellredir = '2>&1 | Out-File -Encoding UTF8 %s; exit $LastExitCode'
+    let &shellcmdflag = '-NoLogo -NoProfile -ExecutionPolicy RemoteSigned -Command ]]..cmd..[['
   ]])
-  return found
 end
 
 function module.nvim(method, ...)
@@ -755,6 +719,19 @@ function module.pending_win32(pending_fn)
   end
 end
 
+function module.pending_c_parser(pending_fn)
+  local status, msg = unpack(module.exec_lua([[ return {pcall(vim.treesitter.require_language, 'c')} ]]))
+  if not status then
+    if module.isCI() then
+      error("treesitter C parser not found, required on CI: " .. msg)
+    else
+      pending_fn 'no C parser, skipping'
+      return true
+    end
+  end
+  return false
+end
+
 -- Calls pending() and returns `true` if the system is too slow to
 -- run fragile or expensive tests. Else returns `false`.
 function module.skip_fragile(pending_fn, cond)
@@ -798,19 +775,9 @@ function module.get_pathsep()
   return iswin() and '\\' or '/'
 end
 
---- Gets the filesystem root dir, namely "/" or "C:/".
 function module.pathroot()
   local pathsep = package.config:sub(1,1)
   return iswin() and (module.nvim_dir:sub(1,2)..pathsep) or '/'
-end
-
---- Gets the full `…/build/bin/{name}` path of a test program produced by
---- `test/functional/fixtures/CMakeLists.txt`.
----
---- @param name (string) Name of the test program.
-function module.testprg(name)
-  local ext = module.iswin() and '.exe' or ''
-  return ('%s/%s%s'):format(module.nvim_dir, name, ext)
 end
 
 -- Returns a valid, platform-independent Nvim listen address.

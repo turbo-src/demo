@@ -4,8 +4,7 @@
 #include <stdint.h>
 #include <time.h>
 
-#include "nvim/ex_cmds_defs.h"
-#include "nvim/runtime.h"
+typedef uint64_t proftime_T;
 
 #define TIME_MSG(s) do { \
   if (time_fd != NULL) time_msg(s, NULL); \

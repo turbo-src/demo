@@ -113,7 +113,7 @@ func Test_chdir_func()
   call assert_equal('z', fnamemodify(3->getcwd(2), ':t'))
   tabnext | wincmd t
   call assert_match('^\[tabpage\] .*/y$', trim(execute('verbose pwd')))
-  eval '..'->chdir()
+  call chdir('..')
   call assert_equal('Xdir', fnamemodify(getcwd(1, 2), ':t'))
   call assert_equal('Xdir', fnamemodify(getcwd(2, 2), ':t'))
   call assert_equal('z', fnamemodify(getcwd(3, 2), ':t'))
@@ -223,21 +223,6 @@ func Test_cd_from_non_existing_dir()
   call assert_equal('', getcwd())
   cd -
   call assert_equal(saveddir, getcwd())
-endfunc
-
-func Test_cd_completion()
-  call mkdir('XComplDir1', 'p')
-  call mkdir('XComplDir2', 'p')
-  call writefile([], 'XComplFile')
-
-  for cmd in ['cd', 'chdir', 'lcd', 'lchdir', 'tcd', 'tchdir']
-    call feedkeys(':' .. cmd .. " XCompl\<C-A>\<C-B>\"\<CR>", 'tx')
-    call assert_equal('"' .. cmd .. ' XComplDir1/ XComplDir2/', @:)
-  endfor
-
-  call delete('XComplDir1', 'd')
-  call delete('XComplDir2', 'd')
-  call delete('XComplFile')
 endfunc
 
 func Test_cd_unknown_dir()

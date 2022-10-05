@@ -78,30 +78,22 @@ func dist#ft#FTbas()
 
   " most frequent FreeBASIC-specific keywords in distro files
   let fb_keywords = '\c^\s*\%(extern\|var\|enum\|private\|scope\|union\|byref\|operator\|constructor\|delete\|namespace\|public\|property\|with\|destructor\|using\)\>\%(\s*[:=(]\)\@!'
-  let fb_preproc  = '\c^\s*\%(' ..
-        \ '#\s*\a\+\|' ..
-        \ 'option\s\+\%(byval\|dynamic\|escape\|\%(no\)\=gosub\|nokeyword\|private\|static\)\>\|' ..
-        \ '\%(''\|rem\)\s*\$lang\>\|' ..
-        \ 'def\%(byte\|longint\|short\|ubyte\|uint\|ulongint\|ushort\)\>' ..
-        \ '\)'
+  let fb_preproc  = '\c^\s*\%(#\a\+\|option\s\+\%(byval\|dynamic\|escape\|\%(no\)\=gosub\|nokeyword\|private\|static\)\>\)'
   let fb_comment  = "^\\s*/'"
   " OPTION EXPLICIT, without the leading underscore, is common to many dialects
   let qb64_preproc = '\c^\s*\%($\a\+\|option\s\+\%(_explicit\|_\=explicitarray\)\>\)'
 
-  for lnum in range(1, min([line("$"), 100]))
-    let line = getline(lnum)
-    if line =~ s:ft_visual_basic_content
-      setf vb
-      return
-    elseif line =~ fb_preproc || line =~ fb_comment || line =~ fb_keywords
-      setf freebasic
-      return
-    elseif line =~ qb64_preproc
-      setf qb64
-      return
-    endif
-  endfor
-  setf basic
+  let lines = getline(1, min([line("$"), 100]))
+
+  if match(lines, fb_preproc) > -1 || match(lines, fb_comment) > -1 || match(lines, fb_keywords) > -1
+    setf freebasic
+  elseif match(lines, qb64_preproc) > -1
+    setf qb64
+  elseif match(lines, s:ft_visual_basic_content) > -1
+    setf vb
+  else
+    setf basic
+  endif
 endfunc
 
 func dist#ft#FTbtm()
@@ -136,23 +128,6 @@ func dist#ft#FTcfg()
     setf rapid
   else
     setf cfg
-  endif
-endfunc
-
-func dist#ft#FTcls()
-  if exists("g:filetype_cls")
-    exe "setf " .. g:filetype_cls
-    return
-  endif
-
-  if getline(1) =~ '^%'
-    setf tex
-  elseif getline(1)[0] == '#' && getline(1) =~ 'rexx'
-    setf rexx
-  elseif getline(1) == 'VERSION 1.0 CLASS'
-    setf vb
-  else
-    setf st
   endif
 endfunc
 
@@ -348,7 +323,7 @@ func dist#ft#FTidl()
   setf idl
 endfunc
 
-" Distinguish between "default", Prolog and Cproto prototype file. */
+" Distinguish between "default" and Cproto prototype file. */
 func dist#ft#ProtoCheck(default)
   " Cproto files have a comment in the first line and a function prototype in
   " the second line, it always ends in ";".  Indent files may also have
@@ -358,14 +333,7 @@ func dist#ft#ProtoCheck(default)
   if getline(2) =~ '.;$'
     setf cpp
   else
-    " recognize Prolog by specific text in the first non-empty line
-    " require a blank after the '%' because Perl uses "%list" and "%translate"
-    let l = getline(nextnonblank(1))
-    if l =~ '\<prolog\>' || l =~ '^\s*\(%\+\(\s\|$\)\|/\*\)' || l =~ ':-'
-      setf prolog
-    else
-      exe 'setf ' .. a:default
-    endif
+    exe 'setf ' . a:default
   endif
 endfunc
 
@@ -466,9 +434,9 @@ func dist#ft#FTmm()
   setf nroff
 endfunc
 
-" Returns true if file content looks like LambdaProlog module
+" Returns true if file content looks like LambdaProlog
 func IsLProlog()
-  " skip apparent comments and blank lines, what looks like
+  " skip apparent comments and blank lines, what looks like 
   " LambdaProlog comment may be RAPID header
   let l = nextnonblank(1)
   while l > 0 && l < line('$') && getline(l) =~ '^\s*%' " LambdaProlog comment
@@ -526,14 +494,12 @@ func dist#ft#FTinc()
     " headers so assume POV-Ray
     elseif lines =~ '^\s*\%({\|(\*\)' || lines =~? s:ft_pascal_keywords
       setf pascal
-    elseif lines =~# '\<\%(require\|inherit\)\>' || lines =~# '[A-Z][A-Za-z0-9_:${}]*\s\+\%(??\|[?:+]\)\?= '
-      setf bitbake
     else
       call dist#ft#FTasmsyntax()
       if exists("b:asmsyntax")
-        exe "setf " . fnameescape(b:asmsyntax)
+	exe "setf " . fnameescape(b:asmsyntax)
       else
-        setf pov
+	setf pov
       endif
     endif
   endif
@@ -854,44 +820,6 @@ func dist#ft#FTperl()
     return 1
   endif
   return 0
-endfunc
-
-" LambdaProlog and Standard ML signature files
-func dist#ft#FTsig()
-  if exists("g:filetype_sig")
-    exe "setf " .. g:filetype_sig
-    return
-  endif
-
-  let lprolog_comment = '^\s*\%(/\*\|%\)'
-  let lprolog_keyword = '^\s*sig\s\+\a'
-  let sml_comment = '^\s*(\*'
-  let sml_keyword = '^\s*\%(signature\|structure\)\s\+\a'
-
-  let line = getline(nextnonblank(1))
-
-  if line =~ lprolog_comment || line =~# lprolog_keyword
-    setf lprolog
-  elseif line =~ sml_comment || line =~# sml_keyword
-    setf sml
-  endif
-endfunc
-
-" This function checks the first 100 lines of files matching "*.sil" to
-" resolve detection between Swift Intermediate Language and SILE.
-func dist#ft#FTsil()
-  for lnum in range(1, [line('$'), 100]->min())
-    let line = getline(lnum)
-    if line =~ '^\s*[\\%]'
-      setf sile
-      return
-    elseif line =~ '^\s*\S'
-      setf sil
-      return
-    endif
-  endfor
-  " no clue, default to "sil"
-  setf sil
 endfunc
 
 func dist#ft#FTsys()

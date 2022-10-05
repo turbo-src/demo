@@ -8,23 +8,10 @@ set cpo&vim
 func! Test_check_colors()
   let l:savedview = winsaveview()
   call cursor(1,1)
-
-  " err is
-  " {
-  "    colors_name: "message",
-  "    init: "message",
-  "    background: "message",
-  "    ....etc
-  "    highlight: {
-  "       'Normal': "Missing ...",
-  "       'Conceal': "Missing ..."
-  "       ....etc
-  "    }
-  " }
   let err = {}
 
   " 1) Check g:colors_name is existing
-  if search('\<\%(g:\)\?colors_name\>', 'cnW') == 0
+  if !search('\<\%(g:\)\?colors_name\>', 'cnW')
     let err['colors_name'] = 'g:colors_name not set'
   else
     let err['colors_name'] = 'OK'
@@ -215,12 +202,11 @@ func! Test_check_colors()
   call Result(err)
 endfu
 
-
 fu! Result(err)
   let do_groups = 0
   echohl Title|echomsg "---------------"|echohl Normal
   for key in sort(keys(a:err))
-    if key ==# 'highlight'
+    if key is# 'highlight'
       let do_groups = !empty(a:err[key])
       continue
     else

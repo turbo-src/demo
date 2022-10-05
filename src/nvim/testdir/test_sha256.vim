@@ -1,8 +1,8 @@
 " Tests for the sha256() function.
 
-source check.vim
-CheckFeature cryptv
-CheckFunction sha256
+if !has('cryptv') || !exists('*sha256')
+  finish
+endif
 
 function Test_sha256()
   " test for empty string:

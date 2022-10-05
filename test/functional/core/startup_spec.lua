@@ -2,7 +2,6 @@ local helpers = require('test.functional.helpers')(after_each)
 local Screen = require('test.functional.ui.screen')
 
 local assert_alive = helpers.assert_alive
-local assert_log = helpers.assert_log
 local clear = helpers.clear
 local command = helpers.command
 local ok = helpers.ok
@@ -24,29 +23,6 @@ local iswin = helpers.iswin
 local startswith = helpers.startswith
 local write_file = helpers.write_file
 local meths = helpers.meths
-local alter_slashes = helpers.alter_slashes
-
-local testfile = 'Xtest_startuptime'
-after_each(function()
-  os.remove(testfile)
-end)
-
-describe('startup', function()
-  it('--clean', function()
-    clear()
-    ok(string.find(alter_slashes(meths.get_option('runtimepath')), funcs.stdpath('config'), 1, true) ~= nil)
-    clear('--clean')
-    ok(string.find(alter_slashes(meths.get_option('runtimepath')), funcs.stdpath('config'), 1, true) == nil)
-  end)
-
-  it('--startuptime', function()
-    clear({ args = {'--startuptime', testfile}})
-    retry(nil, 1000, function()
-      assert_log('sourcing', testfile, 100)
-      assert_log("require%('vim%._editor'%)", testfile, 100)
-    end)
-  end)
-end)
 
 describe('startup', function()
   before_each(function()
@@ -279,7 +255,6 @@ describe('startup', function()
 
   it('does not crash when expanding cdpath during early_init', function()
     clear{env={CDPATH='~doesnotexist'}}
-    assert_alive()
     eq(',~doesnotexist', eval('&cdpath'))
   end)
 
@@ -423,8 +398,7 @@ describe('startup', function()
     eq({'ordinary', 'FANCY', 'mittel', 'FANCY after', 'ordinary after'}, exec_lua [[ return _G.test_loadorder ]])
 
     local rtp = meths.get_option'rtp'
-    ok(startswith(rtp, 'test/functional/fixtures/nvim,test/functional/fixtures/pack/*/start/*,test/functional/fixtures/start/*,test/functional/fixtures,test/functional/fixtures/middle,'),
-      'startswith(…)', 'rtp='..rtp)
+    ok(startswith(rtp, 'test/functional/fixtures/nvim,test/functional/fixtures/pack/*/start/*,test/functional/fixtures/start/*,test/functional/fixtures,test/functional/fixtures/middle,'), 'rtp='..rtp)
   end)
 
   it("handles the correct order with opt packages and after/", function()
@@ -524,11 +498,11 @@ describe('sysinit', function()
     [[" -u NONE -i NONE --cmd "set noruler" -D')]])
     screen:expect([[
       ^                                                            |
+                                                                  |
       Entering Debug mode.  Type "cont" to continue.              |
-      nvim_exec()                                                 |
-      cmd: aunmenu *                                              |
+      cmd: augroup nvim_terminal                                  |
       >                                                           |
-      <" -u NONE -i NONE --cmd "set noruler" -D 1,1            All|
+      <" -u NONE -i NONE --cmd "set noruler" -D 1,0-1          All|
                                                                   |
     ]])
     command([[call chansend(g:id, "cont\n")]])
@@ -542,6 +516,13 @@ describe('sysinit', function()
                                                                   |
     ]])
   end)
+end)
+
+describe('clean', function()
+  clear()
+  ok(string.find(meths.get_option('runtimepath'), funcs.stdpath('config'), 1, true) ~= nil)
+  clear('--clean')
+  ok(string.find(meths.get_option('runtimepath'), funcs.stdpath('config'), 1, true) == nil)
 end)
 
 describe('user config init', function()
@@ -598,7 +579,7 @@ describe('user config init', function()
 
     it('loads default lua config, but shows an error', function()
       clear{ args_rm={'-u'}, env=xenv }
-      feed('<cr><c-c>')  -- Dismiss "Conflicting config …" message.
+      feed('<cr>') -- confirm "Conflicting config ..." message
       eq(1, eval('g:lua_rc'))
       matches('^E5422: Conflicting configs', meths.exec('messages', true))
     end)
@@ -650,13 +631,13 @@ describe('runtime:', function()
     eq(2, eval('g:lua_plugin'))
     -- Check if plugin_file_path is listed in :scriptname
     local scripts = meths.exec(':scriptnames', true)
-    assert(scripts:find(plugin_file_path))
+    assert.Truthy(scripts:find(plugin_file_path))
 
     -- Check if plugin_file_path is listed in startup profile
     local profile_reader = io.open(profiler_file, 'r')
     local profile_log = profile_reader:read('*a')
     profile_reader:close()
-    assert(profile_log:find(plugin_file_path))
+    assert.Truthy(profile_log :find(plugin_file_path))
 
     os.remove(profiler_file)
     rmdir(plugin_path)

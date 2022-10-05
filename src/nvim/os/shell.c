@@ -25,7 +25,6 @@
 #include "nvim/os/shell.h"
 #include "nvim/os/signal.h"
 #include "nvim/path.h"
-#include "nvim/profile.h"
 #include "nvim/screen.h"
 #include "nvim/strings.h"
 #include "nvim/tag.h"
@@ -48,11 +47,11 @@ typedef struct {
 # include "os/shell.c.generated.h"
 #endif
 
-static void save_patterns(int num_pat, char **pat, int *num_file, char ***file)
+static void save_patterns(int num_pat, char_u **pat, int *num_file, char_u ***file)
 {
   *file = xmalloc((size_t)num_pat * sizeof(char_u *));
   for (int i = 0; i < num_pat; i++) {
-    char *s = xstrdup(pat[i]);
+    char_u *s = vim_strsave(pat[i]);
     // Be compatible with expand_filename(): halve the number of
     // backslashes.
     backslash_halve(s);
@@ -61,7 +60,7 @@ static void save_patterns(int num_pat, char **pat, int *num_file, char ***file)
   *num_file = num_pat;
 }
 
-static bool have_wildcard(int num, char **file)
+static bool have_wildcard(int num, char_u **file)
 {
   for (int i = 0; i < num; i++) {
     if (path_has_wildcard(file[i])) {
@@ -71,10 +70,10 @@ static bool have_wildcard(int num, char **file)
   return false;
 }
 
-static bool have_dollars(int num, char **file)
+static bool have_dollars(int num, char_u **file)
 {
   for (int i = 0; i < num; i++) {
-    if (vim_strchr(file[i], '$') != NULL) {
+    if (vim_strchr((char *)file[i], '$') != NULL) {
       return true;
     }
   }
@@ -99,7 +98,7 @@ static bool have_dollars(int num, char **file)
 ///                      copied into *file.
 ///
 /// @returns             OK for success or FAIL for error.
-int os_expand_wildcards(int num_pat, char **pat, int *num_file, char ***file, int flags)
+int os_expand_wildcards(int num_pat, char_u **pat, int *num_file, char_u ***file, int flags)
   FUNC_ATTR_NONNULL_ARG(3)
   FUNC_ATTR_NONNULL_ARG(4)
 {
@@ -129,7 +128,7 @@ int os_expand_wildcards(int num_pat, char **pat, int *num_file, char ***file, in
 
   bool is_fish_shell =
 #if defined(UNIX)
-    STRNCMP(invocation_path_tail((char_u *)p_sh, NULL), "fish", 4) == 0;
+    STRNCMP(invocation_path_tail(p_sh, NULL), "fish", 4) == 0;
 #else
     false;
 #endif
@@ -152,7 +151,7 @@ int os_expand_wildcards(int num_pat, char **pat, int *num_file, char ***file, in
   // Don't allow the use of backticks in secure.
   if (secure) {
     for (i = 0; i < num_pat; i++) {
-      if (vim_strchr(pat[i], '`') != NULL
+      if (vim_strchr((char *)pat[i], '`') != NULL
           && (check_secure())) {
         return FAIL;
       }
@@ -160,7 +159,7 @@ int os_expand_wildcards(int num_pat, char **pat, int *num_file, char ***file, in
   }
 
   // get a name for the temp file
-  if ((tempname = (char_u *)vim_tempname()) == NULL) {
+  if ((tempname = vim_tempname()) == NULL) {
     emsg(_(e_notmp));
     return FAIL;
   }
@@ -178,18 +177,18 @@ int os_expand_wildcards(int num_pat, char **pat, int *num_file, char ***file, in
   // STYLE_ECHO:       space separated.
   //       A shell we don't know, stay safe and use "echo".
   if (num_pat == 1 && *pat[0] == '`'
-      && (len = strlen(pat[0])) > 2
+      && (len = STRLEN(pat[0])) > 2
       && *(pat[0] + len - 1) == '`') {
     shell_style = STYLE_BT;
   } else if ((len = STRLEN(p_sh)) >= 3) {
-    if (strcmp(p_sh + len - 3, "csh") == 0) {
+    if (STRCMP(p_sh + len - 3, "csh") == 0) {
       shell_style = STYLE_GLOB;
-    } else if (strcmp(p_sh + len - 3, "zsh") == 0) {
+    } else if (STRCMP(p_sh + len - 3, "zsh") == 0) {
       shell_style = STYLE_PRINT;
     }
   }
   if (shell_style == STYLE_ECHO
-      && strstr(path_tail(p_sh), "sh") != NULL) {
+      && strstr(path_tail((char *)p_sh), "sh") != NULL) {
     shell_style = STYLE_VIMGLOB;
   }
 
@@ -198,7 +197,7 @@ int os_expand_wildcards(int num_pat, char **pat, int *num_file, char ***file, in
   // Worst case: "unset nonomatch; print -N >" plus two is 29
   len = STRLEN(tempname) + 29;
   if (shell_style == STYLE_VIMGLOB) {
-    len += strlen(sh_vimglob_func);
+    len += STRLEN(sh_vimglob_func);
   }
 
   for (i = 0; i < num_pat; i++) {
@@ -249,16 +248,10 @@ int os_expand_wildcards(int num_pat, char **pat, int *num_file, char ***file, in
     }
     STRCAT(command, ">");
   } else {
-    STRCPY(command, "");
-    if (shell_style == STYLE_GLOB) {
-      // Assume the nonomatch option is valid only for csh like shells,
-      // otherwise, this may set the positional parameters for the shell,
-      // e.g. "$*".
-      if (flags & EW_NOTFOUND) {
-        STRCAT(command, "set nonomatch; ");
-      } else {
-        STRCAT(command, "unset nonomatch; ");
-      }
+    if (flags & EW_NOTFOUND) {
+      STRCPY(command, "set nonomatch; ");
+    } else {
+      STRCPY(command, "unset nonomatch; ");
     }
     if (shell_style == STYLE_GLOB) {
       STRCAT(command, "glob >");
@@ -304,7 +297,7 @@ int os_expand_wildcards(int num_pat, char **pat, int *num_file, char ***file, in
         }
 
         // Copy one character.
-        *p++ = (char_u)pat[i][j];
+        *p++ = pat[i][j];
       }
       *p = NUL;
     }
@@ -478,7 +471,7 @@ int os_expand_wildcards(int num_pat, char **pat, int *num_file, char ***file, in
   // Isolate the individual file names.
   p = buffer;
   for (i = 0; i < *num_file; i++) {
-    (*file)[i] = (char *)p;
+    (*file)[i] = p;
     // Space or NL separates
     if (shell_style == STYLE_ECHO || shell_style == STYLE_BT
         || shell_style == STYLE_VIMGLOB) {
@@ -515,16 +508,16 @@ int os_expand_wildcards(int num_pat, char **pat, int *num_file, char ***file, in
 
     // Skip files that are not executable if we check for that.
     if (!dir && (flags & EW_EXEC)
-        && !os_can_exe((*file)[i], NULL, !(flags & EW_SHELLCMD))) {
+        && !os_can_exe((char *)(*file)[i], NULL, !(flags & EW_SHELLCMD))) {
       continue;
     }
 
-    p = xmalloc(strlen((*file)[i]) + 1 + dir);
+    p = xmalloc(STRLEN((*file)[i]) + 1 + dir);
     STRCPY(p, (*file)[i]);
     if (dir) {
       add_pathsep((char *)p);             // add '/' to a directory name
     }
-    (*file)[j++] = (char *)p;
+    (*file)[j++] = p;
   }
   xfree(buffer);
   *num_file = j;
@@ -555,11 +548,11 @@ notfound:
 char **shell_build_argv(const char *cmd, const char *extra_args)
   FUNC_ATTR_NONNULL_RET
 {
-  size_t argc = tokenize((char_u *)p_sh, NULL) + (cmd ? tokenize(p_shcf, NULL) : 0);
+  size_t argc = tokenize(p_sh, NULL) + (cmd ? tokenize(p_shcf, NULL) : 0);
   char **rv = xmalloc((argc + 4) * sizeof(*rv));
 
   // Split 'shell'
-  size_t i = tokenize((char_u *)p_sh, rv);
+  size_t i = tokenize(p_sh, rv);
 
   if (extra_args) {
     rv[i++] = xstrdup(extra_args);        // Push a copy of `extra_args`
@@ -700,7 +693,7 @@ int call_shell(char_u *cmd, ShellOpts opts, char_u *extra_shell_arg)
 
   if (p_verbose > 3) {
     verbose_enter();
-    smsg(_("Executing command: \"%s\""), cmd == NULL ? p_sh : (char *)cmd);
+    smsg(_("Executing command: \"%s\""), cmd == NULL ? p_sh : cmd);
     msg_putchar('\n');
     verbose_leave();
   }
@@ -746,7 +739,7 @@ char_u *get_cmd_output(char_u *cmd, char_u *infile, ShellOpts flags, size_t *ret
   }
 
   // get a name for the temp file
-  char_u *tempname = (char_u *)vim_tempname();
+  char_u *tempname = vim_tempname();
   if (tempname == NULL) {
     emsg(_(e_notmp));
     return NULL;
@@ -861,9 +854,9 @@ static int do_os_system(char **argv, const char *input, size_t len, char **outpu
     // Failed, probably 'shell' is not executable.
     if (!silent) {
       msg_puts(_("\nshell failed to start: "));
-      msg_outtrans((char *)os_strerror(status));
+      msg_outtrans((char_u *)os_strerror(status));
       msg_puts(": ");
-      msg_outtrans(prog);
+      msg_outtrans((char_u *)prog);
       msg_putchar('\n');
     }
     multiqueue_free(events);
@@ -911,7 +904,7 @@ static int do_os_system(char **argv, const char *input, size_t len, char **outpu
     out_data_ring(NULL, SIZE_MAX);
   }
   if (forward_output) {
-    // caller should decide if wait_return() is invoked
+    // caller should decide if wait_return is invoked
     no_wait_return++;
     msg_end();
     no_wait_return--;
@@ -1106,13 +1099,13 @@ static void out_data_append_to_screen(char *output, size_t *count, bool eof)
       //    incomplete UTF-8 sequence that could be composing with the last
       //    complete sequence.
       // This will be corrected when we switch to vterm based implementation
-      int i = *p ? utfc_ptr2len_len(p, (int)(end - p)) : 1;
+      int i = *p ? utfc_ptr2len_len((char_u *)p, (int)(end - p)) : 1;
       if (!eof && i == 1 && utf8len_tab_zero[*(uint8_t *)p] > (end - p)) {
         *count = (size_t)(p - output);
         goto end;
       }
 
-      (void)msg_outtrans_len_attr(p, i, 0);
+      (void)msg_outtrans_len_attr((char_u *)p, i, 0);
       p += i;
     }
   }
@@ -1208,7 +1201,7 @@ static void read_input(DynamicBuffer *buf)
 {
   size_t written = 0, l = 0, len = 0;
   linenr_T lnum = curbuf->b_op_start.lnum;
-  char_u *lp = (char_u *)ml_get(lnum);
+  char_u *lp = ml_get(lnum);
 
   for (;;) {
     l = strlen((char *)lp + written);
@@ -1240,7 +1233,7 @@ static void read_input(DynamicBuffer *buf)
       if (lnum > curbuf->b_op_end.lnum) {
         break;
       }
-      lp = (char_u *)ml_get(lnum);
+      lp = ml_get(lnum);
       written = 0;
     } else if (len > 0) {
       written += len;
@@ -1316,17 +1309,17 @@ static char *shell_xescape_xquote(const char *cmd)
   }
 
   const char *ecmd = cmd;
-  if (*p_sxe != NUL && strcmp(p_sxq, "(") == 0) {
+  if (*p_sxe != NUL && STRCMP(p_sxq, "(") == 0) {
     ecmd = (char *)vim_strsave_escaped_ext((char_u *)cmd, p_sxe, '^', false);
   }
-  size_t ncmd_size = strlen(ecmd) + strlen(p_sxq) * 2 + 1;
+  size_t ncmd_size = strlen(ecmd) + STRLEN(p_sxq) * 2 + 1;
   char *ncmd = xmalloc(ncmd_size);
 
   // When 'shellxquote' is ( append ).
   // When 'shellxquote' is "( append )".
-  if (strcmp(p_sxq, "(") == 0) {
+  if (STRCMP(p_sxq, "(") == 0) {
     vim_snprintf(ncmd, ncmd_size, "(%s)", ecmd);
-  } else if (strcmp(p_sxq, "\"(") == 0) {
+  } else if (STRCMP(p_sxq, "\"(") == 0) {
     vim_snprintf(ncmd, ncmd_size, "\"(%s)\"", ecmd);
   } else {
     vim_snprintf(ncmd, ncmd_size, "%s%s%s", p_sxq, ecmd, p_sxq);

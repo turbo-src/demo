@@ -8,7 +8,9 @@
 #include "nvim/globals.h"  // for TriState
 #include "nvim/types.h"  // for char_u
 
-// Structure to hold printing color and font attributes.
+/*
+ * Structure to hold printing color and font attributes.
+ */
 typedef struct {
   uint32_t fg_color;
   uint32_t bg_color;
@@ -16,12 +18,14 @@ typedef struct {
   TriState italic;
   TriState underline;
   int undercurl;
-  int underdouble;
-  int underdotted;
-  int underdashed;
+  int underlineline;
+  int underdot;
+  int underdash;
 } prt_text_attr_T;
 
-// Structure passed back to the generic printer code.
+/*
+ * Structure passed back to the generic printer code.
+ */
 typedef struct {
   int n_collated_copies;
   int n_uncollated_copies;
@@ -38,7 +42,9 @@ typedef struct {
   char_u *arguments;
 } prt_settings_T;
 
-// Generic option table item, only used for printer at the moment.
+/*
+ * Generic option table item, only used for printer at the moment.
+ */
 typedef struct {
   const char *name;
   int hasnum;

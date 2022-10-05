@@ -9,7 +9,6 @@ local NULL    = helpers.NULL
 
 local globals = helpers.cimport("./src/nvim/globals.h")
 local buffer = helpers.cimport("./src/nvim/buffer.h")
-local stl = helpers.cimport("./src/nvim/statusline.h")
 
 describe('buffer functions', function()
 
@@ -26,14 +25,14 @@ describe('buffer functions', function()
   local path2 = 'file_path_test'
   local path3 = 'path_test_file'
 
-  setup(function()
+  before_each(function()
     -- create the files
     io.open(path1, 'w').close()
     io.open(path2, 'w').close()
     io.open(path3, 'w').close()
   end)
 
-  teardown(function()
+  after_each(function()
     os.remove(path1)
     os.remove(path2)
     os.remove(path3)
@@ -229,7 +228,7 @@ describe('buffer functions', function()
       local fillchar = arg.fillchar or (' '):byte()
       local maximum_cell_count = arg.maximum_cell_count or buffer_byte_size
 
-      return stl.build_stl_str_hl(globals.curwin,
+      return buffer.build_stl_str_hl(globals.curwin,
                                      output_buffer,
                                      buffer_byte_size,
                                      to_cstr(pat),

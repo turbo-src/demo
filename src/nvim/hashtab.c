@@ -45,7 +45,7 @@ char hash_removed;
 void hash_init(hashtab_T *ht)
 {
   // This zeroes all "ht_" entries and all the "hi_key" in "ht_smallarray".
-  CLEAR_POINTER(ht);
+  memset(ht, 0, sizeof(hashtab_T));
   ht->ht_array = ht->ht_smallarray;
   ht->ht_mask = HT_INIT_SIZE - 1;
 }
@@ -67,7 +67,7 @@ void hash_clear(hashtab_T *ht)
 void hash_clear_all(hashtab_T *ht, unsigned int off)
 {
   size_t todo = ht->ht_used;
-  for (hashitem_T *hi = ht->ht_array; todo > 0; hi++) {
+  for (hashitem_T *hi = ht->ht_array; todo > 0; ++hi) {
     if (!HASHITEM_EMPTY(hi)) {
       xfree(hi->hi_key - off);
       todo--;
@@ -85,9 +85,9 @@ void hash_clear_all(hashtab_T *ht, unsigned int off)
 ///         used for that key.
 ///         WARNING: Returned pointer becomes invalid as soon as the hash table
 ///                  is changed in any way.
-hashitem_T *hash_find(const hashtab_T *const ht, const char *const key)
+hashitem_T *hash_find(const hashtab_T *const ht, const char_u *const key)
 {
-  return hash_lookup(ht, key, strlen(key), hash_hash((char_u *)key));
+  return hash_lookup(ht, (const char *)key, STRLEN(key), hash_hash(key));
 }
 
 /// Like hash_find, but key is not NUL-terminated
@@ -342,13 +342,11 @@ static void hash_may_resize(hashtab_T *ht, size_t minitems)
   hashitem_T *oldarray = keep_smallarray
     ? memcpy(temparray, ht->ht_smallarray, sizeof(temparray))
     : ht->ht_array;
-
-  if (newarray_is_small) {
-    CLEAR_FIELD(ht->ht_smallarray);
-  }
   hashitem_T *newarray = newarray_is_small
     ? ht->ht_smallarray
-    : xcalloc(newsize, sizeof(hashitem_T));
+    : xmalloc(sizeof(hashitem_T) * newsize);
+
+  memset(newarray, 0, sizeof(hashitem_T) * newsize);
 
   // Move all the items from the old array to the new one, placing them in
   // the right spot. The new array won't have any removed items, thus this
@@ -356,7 +354,7 @@ static void hash_may_resize(hashtab_T *ht, size_t minitems)
   hash_T newmask = newsize - 1;
   size_t todo = ht->ht_used;
 
-  for (hashitem_T *olditem = oldarray; todo > 0; olditem++) {
+  for (hashitem_T *olditem = oldarray; todo > 0; ++olditem) {
     if (HASHITEM_EMPTY(olditem)) {
       continue;
     }

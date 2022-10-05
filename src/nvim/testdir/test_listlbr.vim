@@ -2,9 +2,9 @@
 
 scriptencoding latin1
 
-source check.vim
-CheckOption linebreak
-CheckFeature conceal
+if !exists("+linebreak") || !has("conceal")
+  finish
+endif
 
 source view_util.vim
 

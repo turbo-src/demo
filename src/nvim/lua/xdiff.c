@@ -269,9 +269,9 @@ int nlua_xdl_diff(lua_State *lstate)
   xpparam_t params;
   xdemitcb_t ecb;
 
-  CLEAR_FIELD(cfg);
-  CLEAR_FIELD(params);
-  CLEAR_FIELD(ecb);
+  memset(&cfg, 0, sizeof(cfg));
+  memset(&params, 0, sizeof(params));
+  memset(&ecb, 0, sizeof(ecb));
 
   NluaXdiffMode mode = kNluaXdiffModeUnified;
 

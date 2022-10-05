@@ -70,6 +70,7 @@ enum { NUMBUFLEN = 65, };
 #define MODE_EXTERNCMD       0x5000  // executing an external command
 #define MODE_SHOWMATCH       (0x6000 | MODE_INSERT)  // show matching paren
 #define MODE_CONFIRM         0x7000  // ":confirm" prompt
+#define MODE_CMDPREVIEW      0x8000  // Showing 'inccommand' command "live" preview.
 
 /// Directions.
 typedef enum {
@@ -167,6 +168,15 @@ enum {
 #define MIN_SWAP_PAGE_SIZE 1048
 #define MAX_SWAP_PAGE_SIZE 50000
 
+// Boolean constants
+
+#ifndef TRUE
+# define FALSE  0           // note: this is an int, not a long!
+# define TRUE   1
+#endif
+
+#define MAYBE   2           // sometimes used for a variant on TRUE
+
 #define STATUS_HEIGHT   1       // height of a status line under a window
 #define QF_WINHEIGHT    10      // default height for quickfix window
 
@@ -190,7 +200,6 @@ enum { FOLD_TEXT_LEN = 51, };  //!< buffer size for get_foldtext()
 // Size in bytes of the hash used in the undo file.
 #define UNDO_HASH_SIZE 32
 
-#define CLEAR_FIELD(field)  memset(&(field), 0, sizeof(field))
 #define CLEAR_POINTER(ptr)  memset((ptr), 0, sizeof(*(ptr)))
 
 // defines to avoid typecasts from (char_u *) to (char *) and back
@@ -205,6 +214,7 @@ enum { FOLD_TEXT_LEN = 51, };  //!< buffer size for get_foldtext()
 #define STRCPY(d, s)        strcpy((char *)(d), (char *)(s))
 #define STRNCPY(d, s, n)    strncpy((char *)(d), (char *)(s), (size_t)(n))
 #define STRLCPY(d, s, n)    xstrlcpy((char *)(d), (char *)(s), (size_t)(n))
+#define STRCMP(d, s)        strcmp((char *)(d), (char *)(s))
 #define STRNCMP(d, s, n)    strncmp((char *)(d), (char *)(s), (size_t)(n))
 #ifdef HAVE_STRCASECMP
 # define STRICMP(d, s)      strcasecmp((char *)(d), (char *)(s))
@@ -229,7 +239,11 @@ enum { FOLD_TEXT_LEN = 51, };  //!< buffer size for get_foldtext()
 # endif
 #endif
 
-#define STRCAT(d, s)        strcat((char *)(d), (char *)(s))  // NOLINT(runtime/printf)
+#define STRRCHR(s, c)       (char_u *)strrchr((const char *)(s), (c))
+
+#define STRCAT(d, s)        strcat((char *)(d), (char *)(s))
+#define STRNCAT(d, s, n)    strncat((char *)(d), (char *)(s), (size_t)(n))
+#define STRLCAT(d, s, n)    xstrlcat((char *)(d), (char *)(s), (size_t)(n))
 
 // Character used as separated in autoload function/variable names.
 #define AUTOLOAD_CHAR '#'
@@ -244,8 +258,25 @@ enum { FOLD_TEXT_LEN = 51, };  //!< buffer size for get_foldtext()
 
 #include "nvim/path.h"
 
-// Enums need a typecast to be used as array index.
-#define HL_ATTR(n)      hl_attr_active[(int)(n)]
+/// Compare file names
+///
+/// On some systems case in a file name does not matter, on others it does.
+///
+/// @note Does not account for maximum name lengths and things like "../dir",
+///       thus it is not 100% accurate. OS may also use different algorithm for
+///       case-insensitive comparison.
+///
+/// @param[in]  x  First file name to compare.
+/// @param[in]  y  Second file name to compare.
+///
+/// @return 0 for equal file names, non-zero otherwise.
+#define FNAMECMP(x, y) path_fnamecmp((const char *)(x), (const char *)(y))
+#define FNAMENCMP(x, y, n) path_fnamencmp((const char *)(x), \
+                                          (const char *)(y), \
+                                          (size_t)(n))
+
+// Enums need a typecast to be used as array index (for Ultrix).
+#define HL_ATTR(n)      highlight_attr[(int)(n)]
 
 /// Maximum number of bytes in a multi-byte character.  It can be one 32-bit
 /// character of up to 6 bytes, or one 16-bit character of up to three bytes

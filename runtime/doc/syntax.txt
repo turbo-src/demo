@@ -181,16 +181,16 @@ Vim will only load the first syntax file found, assuming that it sets
 b:current_syntax.
 
 
-NAMING CONVENTIONS		    *group-name* *{group-name}* *E669* *E5248*
+NAMING CONVENTIONS		    *group-name* *{group-name}* *E669* *W18*
 
 A syntax group name is to be used for syntax items that match the same kind of
 thing.  These are then linked to a highlight group that specifies the color.
 A syntax group name doesn't specify any color or attributes itself.
 
-The name for a highlight or syntax group must consist of ASCII letters,
-digits, underscores, periods and `@` characters.  As a regexp it is
-`[a-zA-Z0-9_.@]*`. The maximum length of a group name is about 200 bytes.
-*E1249*
+The name for a highlight or syntax group must consist of ASCII letters, digits
+and the underscore.  As a regexp: "[a-zA-Z0-9_]*".  However, Vim does not give
+an error when using other characters.  The maximum length of a group name is
+about 200 bytes.  *E1249*
 
 To be able to allow each user to pick their favorite set of colors, there must
 be preferred names for highlight groups that are common for many languages.
@@ -1658,21 +1658,6 @@ because Fortran90 has no reserved words.
 
 For further information related to fortran, see |ft-fortran-indent| and
 |ft-fortran-plugin|.
-
-FREEBASIC				*freebasic.vim* *ft-freebasic-syntax*
-
-FreeBASIC files will be highlighted differently for each of the four available
-dialects, "fb", "qb", "fblite" and "deprecated".  See |ft-freebasic-plugin|
-for how to select the correct dialect.
-
-Highlighting is further configurable via the following variables.
-
-Variable			Highlight ~
-*freebasic_no_comment_fold*	disable multiline comment folding
-*freebasic_operators*		non-alpha operators
-*freebasic_space_errors*	trailing white space and spaces before a <Tab>
-*freebasic_type_suffixes*	QuickBASIC style type suffixes
-
 
 
 FVWM CONFIGURATION FILES			*fvwm.vim* *ft-fvwm-syntax*
@@ -4910,19 +4895,19 @@ the same syntax file on all UIs.
 
 1. TUI highlight arguments
 
-					*bold* *underline* *undercurl*
-					*underdouble* *underdotted*
-					*underdashed* *inverse* *italic*
-					*standout* *nocombine* *strikethrough*
+					*bold* *underline* *underlineline*
+					*undercurl* *underdot* *underdash*
+					*inverse* *italic* *standout*
+					*nocombine* *strikethrough*
 cterm={attr-list}			*attr-list* *highlight-cterm* *E418*
 	attr-list is a comma-separated list (without spaces) of the
 	following items (in any order):
 		bold
 		underline
+		underlineline	double underline
 		undercurl	curly underline
-		underdouble	double underline
-		underdotted	dotted underline
-		underdashed	dashed underline
+		underdot	dotted underline
+		underdash	dashed underline
 		strikethrough
 		reverse
 		inverse		same as reverse
@@ -4933,7 +4918,7 @@ cterm={attr-list}			*attr-list* *highlight-cterm* *E418*
 
 	Note that "bold" can be used here and by using a bold font.  They
 	have the same effect.
-	"undercurl", "underdouble", "underdotted", and "underdashed" fall back
+	"underlineline", "undercurl", "underdot", and "underdash" fall back
 	to "underline" in a terminal that does not support them. The color is
 	set using |highlight-guisp|.
 
@@ -5250,7 +5235,7 @@ TabLineSel	Tab pages line, active tab page label.
 Title		Titles for output from ":set all", ":autocmd" etc.
 							*hl-Visual*
 Visual		Visual mode selection.
-							*hl-VisualNOS*
+ 							*hl-VisualNOS*
 VisualNOS	Visual mode selection when vim is "Not Owning the Selection".
 							*hl-WarningMsg*
 WarningMsg	Warning messages.

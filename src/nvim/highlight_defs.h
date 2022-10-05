@@ -17,17 +17,17 @@ typedef enum {
   HL_ITALIC          = 0x04,
   HL_UNDERLINE       = 0x08,
   HL_UNDERCURL       = 0x10,
-  HL_UNDERDOUBLE     = 0x20,
-  HL_UNDERDOTTED     = 0x40,
-  HL_UNDERDASHED     = 0x80,
-  HL_STANDOUT      = 0x0100,
-  HL_NOCOMBINE     = 0x0200,
-  HL_STRIKETHROUGH = 0x0400,
-  HL_BG_INDEXED    = 0x0800,
-  HL_FG_INDEXED    = 0x1000,
-  HL_DEFAULT       = 0x2000,
-  HL_GLOBAL        = 0x4000,
-  HL_ANY_UNDERLINE = HL_UNDERLINE | HL_UNDERDOUBLE | HL_UNDERCURL | HL_UNDERDOTTED | HL_UNDERDASHED,
+  HL_STANDOUT        = 0x20,
+  HL_STRIKETHROUGH   = 0x40,
+  HL_NOCOMBINE       = 0x80,
+  HL_BG_INDEXED    = 0x0100,
+  HL_FG_INDEXED    = 0x0200,
+  HL_DEFAULT       = 0x0400,
+  HL_GLOBAL        = 0x0800,
+  HL_UNDERLINELINE = 0x1000,
+  HL_UNDERDOT      = 0x2000,
+  HL_UNDERDASH     = 0x4000,
+  HL_ANY_UNDERLINE = HL_UNDERLINE | HL_UNDERLINELINE | HL_UNDERCURL | HL_UNDERDOT | HL_UNDERDASH,
 } HlAttrFlags;
 
 /// Stores a complete highlighting entry, including colors and attributes
@@ -113,7 +113,6 @@ typedef enum {
   HLF_BORDER,     // Floating window border
   HLF_WBR,        // Window bars
   HLF_WBRNC,      // Window bars of not-current windows
-  HLF_CU,         // Cursor
   HLF_COUNT,      // MUST be the last one
 } hlf_T;
 
@@ -177,10 +176,9 @@ EXTERN const char *hlf_names[] INIT(= {
   [HLF_BORDER] = "FloatBorder",
   [HLF_WBR] = "WinBar",
   [HLF_WBRNC] = "WinBarNC",
-  [HLF_CU] = "Cursor",
 });
 
-EXTERN int highlight_attr[HLF_COUNT + 1];     // Highl. attr for each context.
+EXTERN int highlight_attr[HLF_COUNT];       // Highl. attr for each context.
 EXTERN int highlight_attr_last[HLF_COUNT];  // copy for detecting changed groups
 EXTERN int highlight_user[9];                   // User[1-9] attributes
 EXTERN int highlight_stlnc[9];                  // On top of user
@@ -189,13 +187,6 @@ EXTERN int cterm_normal_bg_color INIT(= 0);
 EXTERN RgbValue normal_fg INIT(= -1);
 EXTERN RgbValue normal_bg INIT(= -1);
 EXTERN RgbValue normal_sp INIT(= -1);
-
-EXTERN NS ns_hl_global INIT(= 0);  // global highlight namespace
-EXTERN NS ns_hl_win INIT(= -1);    // highlight namespace for the current window
-EXTERN NS ns_hl_fast INIT(= -1);   // highlight namespace specified in a fast callback
-EXTERN NS ns_hl_active INIT(= 0);  // currently active/cached namespace
-
-EXTERN int *hl_attr_active INIT(= highlight_attr);
 
 typedef enum {
   kHlUnknown,
@@ -226,15 +217,8 @@ typedef struct {
   int link_id;
   int version;
   bool is_default;
-  bool link_global;
 } ColorItem;
-#define COLOR_ITEM_INITIALIZER { .attr_id = -1, .link_id = -1, .version = -1, \
-                                 .is_default = false, .link_global = false }
-
-/// highlight attributes with associated priorities
-typedef struct {
-  int attr_id;
-  int priority;
-} HlPriAttr;
+#define COLOR_ITEM_INITIALIZER { .attr_id = -1, .link_id = -1, \
+                                 .version = -1, .is_default = false }
 
 #endif  // NVIM_HIGHLIGHT_DEFS_H

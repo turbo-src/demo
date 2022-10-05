@@ -18,10 +18,6 @@ fun! SetSyn(name)
   else
     let name = a:name
   endif
-  if a:name == "whitespace"
-    " do not replace the filetype but add whitespace on top
-    let name = &ft .. ".whitespace"
-  endif
   if !exists("s:syntax_menu_synonly")
     exe "set ft=" . name
     if exists("g:syntax_manual")

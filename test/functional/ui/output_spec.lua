@@ -9,7 +9,6 @@ local feed_command = helpers.feed_command
 local iswin = helpers.iswin
 local clear = helpers.clear
 local command = helpers.command
-local testprg = helpers.testprg
 local nvim_dir = helpers.nvim_dir
 local has_powershell = helpers.has_powershell
 local set_shell_powershell = helpers.set_shell_powershell
@@ -55,7 +54,7 @@ describe("shell command :!", function()
     if 'openbsd' == helpers.uname() then
       pending('FIXME #10804')
     end
-    child_session.feed_data((":!%s REP 30001 foo\n"):format(testprg('shell-test')))
+    child_session.feed_data(":!"..nvim_dir.."/shell-test REP 30001 foo\n")
 
     -- If we observe any line starting with a dot, then throttling occurred.
     -- Avoid false failure on slow systems.
@@ -100,52 +99,45 @@ describe("shell command :!", function()
       pending('missing printf')
     end
     local screen = Screen.new(50, 4)
-    screen:set_default_attr_ids {
-      [1] = {bold = true, reverse = true};
-      [2] = {bold = true, foreground = Screen.colors.SeaGreen};
-      [3] = {foreground = Screen.colors.Blue};
-    }
     screen:attach()
+    command("set display-=msgsep")
     -- Print TAB chars. #2958
     feed([[:!printf '1\t2\t3'<CR>]])
-    screen:expect{grid=[[
-      {1:                                                  }|
+    screen:expect([[
+      ~                                                 |
       :!printf '1\t2\t3'                                |
       1       2       3                                 |
-      {2:Press ENTER or type command to continue}^           |
-    ]]}
+      Press ENTER or type command to continue^           |
+    ]])
     feed([[<CR>]])
-
     -- Print BELL control code. #4338
     screen.bell = false
     feed([[:!printf '\007\007\007\007text'<CR>]])
     screen:expect{grid=[[
-      {1:                                                  }|
+      ~                                                 |
       :!printf '\007\007\007\007text'                   |
       text                                              |
-      {2:Press ENTER or type command to continue}^           |
+      Press ENTER or type command to continue^           |
     ]], condition=function()
       eq(true, screen.bell)
     end}
     feed([[<CR>]])
-
     -- Print BS control code.
     feed([[:echo system('printf ''\010\n''')<CR>]])
     screen:expect([[
-      {1:                                                  }|
-      {3:^H}                                                |
+      ~                                                 |
+      ^H                                                |
                                                         |
-      {2:Press ENTER or type command to continue}^           |
+      Press ENTER or type command to continue^           |
     ]])
     feed([[<CR>]])
-
     -- Print LF control code.
     feed([[:!printf '\n'<CR>]])
     screen:expect([[
       :!printf '\n'                                     |
                                                         |
                                                         |
-      {2:Press ENTER or type command to continue}^           |
+      Press ENTER or type command to continue^           |
     ]])
     feed([[<CR>]])
   end)
@@ -215,7 +207,12 @@ describe("shell command :!", function()
 
     it('handles multibyte sequences split over buffer boundaries', function()
       command('cd '..nvim_dir)
-      local cmd = iswin() and '!shell-test UTF-8  ' or '!./shell-test UTF-8'
+      local cmd
+      if iswin() then
+        cmd = '!shell-test UTF-8  '
+      else
+        cmd = '!./shell-test UTF-8'
+      end
       feed_command(cmd)
       -- Note: only the first example of split composed char works
       screen:expect([[

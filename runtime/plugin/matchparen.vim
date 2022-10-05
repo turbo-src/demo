@@ -5,7 +5,8 @@
 " Exit quickly when:
 " - this plugin was already loaded (or disabled)
 " - when 'compatible' is set
-if exists("g:loaded_matchparen") || &cp
+" - the "CursorMoved" autocmd event is not available.
+if exists("g:loaded_matchparen") || &cp || !exists("##CursorMoved")
   finish
 endif
 let g:loaded_matchparen = 1
@@ -19,7 +20,7 @@ endif
 
 augroup matchparen
   " Replace all matchparen autocommands
-  autocmd! CursorMoved,CursorMovedI,WinEnter,WinScrolled * call s:Highlight_Matching_Pair()
+  autocmd! CursorMoved,CursorMovedI,WinEnter * call s:Highlight_Matching_Pair()
   autocmd! WinLeave * call s:Remove_Matches()
   if exists('##TextChanged')
     autocmd! TextChanged,TextChangedI * call s:Highlight_Matching_Pair()

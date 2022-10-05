@@ -31,7 +31,6 @@ describe('ui/ext_messages', function()
       [7] = {background = Screen.colors.Yellow},
       [8] = {foreground = Screen.colors.Red},
       [9] = {special = Screen.colors.Red, undercurl = true},
-      [10] = {foreground = Screen.colors.Brown};
     })
   end)
   after_each(function()
@@ -737,6 +736,7 @@ describe('ui/ext_messages', function()
     ]])
     eq(0, eval('&cmdheight'))
 
+    -- normally this would be an error
     feed(':set cmdheight=0')
     screen:expect{grid=[[
       ^                         |
@@ -858,53 +858,9 @@ stack traceback:
       {1:~                        }|
       {1:~                        }|
     ]]}
+
   end)
 
-  it('supports nvim_echo messages with multiple attrs', function()
-    async_meths.echo({{'wow, ',"Search"}, {"such\n\nvery ", "ErrorMsg"}, {"color", "LineNr"}}, true, {})
-    screen:expect{grid=[[
-      ^                         |
-      {1:~                        }|
-      {1:~                        }|
-      {1:~                        }|
-      {1:~                        }|
-    ]], messages={
-      { content = { { "wow, ", 7 }, { "such\n\nvery ", 2 }, { "color", 10 } }, kind = "" }
-    }}
-
-    feed ':ls<cr>'
-    screen:expect{grid=[[
-      ^                         |
-      {1:~                        }|
-      {1:~                        }|
-      {1:~                        }|
-      {1:~                        }|
-    ]], messages={
-      { content = { { '\n  1 %a   "[No Name]"                    line 1' } }, kind = "echomsg" }
-    }}
-
-    feed ':messages<cr>'
-    screen:expect{grid=[[
-      ^                         |
-      {1:~                        }|
-      {1:~                        }|
-      {1:~                        }|
-      {1:~                        }|
-    ]], messages={
-      { content = { { "Press ENTER or type command to continue", 4 } }, kind = "return_prompt" }
-    }, msg_history={
-      { content = { { "wow, ", 7 }, { "such\n\nvery ", 2 }, { "color", 10 } }, kind = "echomsg" }
-    }}
-
-    feed '<cr>'
-    screen:expect{grid=[[
-      ^                         |
-      {1:~                        }|
-      {1:~                        }|
-      {1:~                        }|
-      {1:~                        }|
-    ]]}
-  end)
 end)
 
 describe('ui/builtin messages', function()
@@ -913,19 +869,17 @@ describe('ui/builtin messages', function()
     clear()
     screen = Screen.new(60, 7)
     screen:attach({rgb=true, ext_popupmenu=true})
-    screen:set_default_attr_ids  {
-      [1] = {bold = true, foreground = Screen.colors.Blue1};
-      [2] = {foreground = Screen.colors.Grey100, background = Screen.colors.Red};
-      [3] = {bold = true, reverse = true};
-      [4] = {bold = true, foreground = Screen.colors.SeaGreen4};
-      [5] = {foreground = Screen.colors.Blue1};
-      [6] = {bold = true, foreground = Screen.colors.Magenta};
-      [7] = {background = Screen.colors.Grey20};
-      [8] = {reverse = true};
-      [9] = {background = Screen.colors.LightRed};
-      [10] = {background = Screen.colors.Yellow};
-      [11] = {foreground = Screen.colors.Brown};
-    }
+    screen:set_default_attr_ids({
+      [1] = {bold = true, foreground = Screen.colors.Blue1},
+      [2] = {foreground = Screen.colors.Grey100, background = Screen.colors.Red},
+      [3] = {bold = true, reverse = true},
+      [4] = {bold = true, foreground = Screen.colors.SeaGreen4},
+      [5] = {foreground = Screen.colors.Blue1},
+      [6] = {bold = true, foreground = Screen.colors.Magenta},
+      [7] = {background = Screen.colors.Grey20},
+      [8] = {reverse = true},
+      [9] = {background = Screen.colors.LightRed}
+    })
   end)
 
   it('supports multiline messages from rpc', function()
@@ -1077,10 +1031,10 @@ vimComment     xxx match /\s"[^\-:.%#=*].*$/ms=s+1,lc=1  excludenl contains=@vim
     ]]}
   end)
 
-  it('redraws UPD_NOT_VALID correctly after message', function()
-    -- edge case: only one window was set UPD_NOT_VALID. Original report
+  it('redraws NOT_VALID correctly after message', function()
+    -- edge case: only one window was set NOT_VALID. Original report
     -- used :make, but fake it using one command to set the current
-    -- window UPD_NOT_VALID and another to show a long message.
+    -- window NOT_VALID and another to show a long message.
     command("set more")
     feed(':new<cr><c-w><c-w>')
     screen:expect{grid=[[
@@ -1160,101 +1114,6 @@ vimComment     xxx match /\s"[^\-:.%#=*].*$/ms=s+1,lc=1  excludenl contains=@vim
       {2:        [string ":lua"]:1: in main chunk}                    |
       {4:Press ENTER or type command to continue}^                     |
     ]]}
-  end)
-
-  it('supports nvim_echo messages with multiple attrs', function()
-    async_meths.echo({{'wow, ',"Search"}, {"such\n\nvery ", "ErrorMsg"}, {"color", "LineNr"}}, true, {})
-    screen:expect{grid=[[
-                                                                  |
-      {1:~                                                           }|
-      {3:                                                            }|
-      {10:wow, }{2:such}                                                   |
-                                                                  |
-      {2:very }{11:color}                                                  |
-      {4:Press ENTER or type command to continue}^                     |
-    ]]}
-
-    feed '<cr>'
-    screen:expect{grid=[[
-      ^                                                            |
-      {1:~                                                           }|
-      {1:~                                                           }|
-      {1:~                                                           }|
-      {1:~                                                           }|
-      {1:~                                                           }|
-                                                                  |
-    ]]}
-
-    feed ':messages<cr>'
-    screen:expect{grid=[[
-                                                                  |
-      {1:~                                                           }|
-      {3:                                                            }|
-      {10:wow, }{2:such}                                                   |
-                                                                  |
-      {2:very }{11:color}                                                  |
-      {4:Press ENTER or type command to continue}^                     |
-    ]]}
-  end)
-
-  it('prints lines in Ex mode correctly with a burst of carriage returns #19341', function()
-    command('set number')
-    meths.buf_set_lines(0, 0, 0, true, {'aaa', 'bbb', 'ccc'})
-    command('set display-=msgsep')
-    feed('gggQ<CR><CR>1<CR><CR>vi')
-    screen:expect([[
-      Entering Ex mode.  Type "visual" to go to Normal mode.      |
-      {11:  2 }bbb                                                     |
-      {11:  3 }ccc                                                     |
-      :1                                                          |
-      {11:  1 }aaa                                                     |
-      {11:  2 }bbb                                                     |
-      :vi^                                                         |
-    ]])
-    feed('<CR>')
-    screen:expect([[
-      {11:  1 }aaa                                                     |
-      {11:  2 }^bbb                                                     |
-      {11:  3 }ccc                                                     |
-      {11:  4 }                                                        |
-      {1:~                                                           }|
-      {1:~                                                           }|
-                                                                  |
-    ]])
-    command('set display+=msgsep')
-    feed('gggQ<CR><CR>1<CR><CR>vi')
-    screen:expect([[
-      Entering Ex mode.  Type "visual" to go to Normal mode.      |
-      {11:  2 }bbb                                                     |
-      {11:  3 }ccc                                                     |
-      :1                                                          |
-      {11:  1 }aaa                                                     |
-      {11:  2 }bbb                                                     |
-      :vi^                                                         |
-    ]])
-    feed('<CR>')
-    screen:expect([[
-      {11:  1 }aaa                                                     |
-      {11:  2 }^bbb                                                     |
-      {11:  3 }ccc                                                     |
-      {11:  4 }                                                        |
-      {1:~                                                           }|
-      {1:~                                                           }|
-                                                                  |
-    ]])
-  end)
-
-  it('echo messages are shown correctly when getchar() immediately follows', function()
-    feed([[:echo 'foo' | echo 'bar' | call getchar()<CR>]])
-    screen:expect([[
-                                                                  |
-      {1:~                                                           }|
-      {1:~                                                           }|
-      {1:~                                                           }|
-      {3:                                                            }|
-      foo                                                         |
-      bar^                                                         |
-    ]])
   end)
 end)
 
@@ -1544,7 +1403,7 @@ ullamco laboris nisi ut
 aliquip ex ea commodo consequat.]])
   end)
 
-  it('can be quit with echon', function()
+  it('can be quit', function()
     screen:try_resize(25,5)
     feed(':echon join(map(range(0, &lines*10), "v:val"), "\\n")<cr>')
     screen:expect{grid=[[
@@ -1562,45 +1421,6 @@ aliquip ex ea commodo consequat.]])
       {1:~                        }|
                                |
     ]]}
-  end)
-
-  it('can be quit with Lua #11224 #16537', function()
-    -- NOTE: adds "4" to message history, although not displayed initially
-    --       (triggered the more prompt).
-    screen:try_resize(40,5)
-    feed(':lua for i=0,10 do print(i) end<cr>')
-    screen:expect{grid=[[
-      0                                       |
-      1                                       |
-      2                                       |
-      3                                       |
-      {4:-- More --}^                              |
-    ]]}
-    feed('q')
-    screen:expect{grid=[[
-      ^                                        |
-      {1:~                                       }|
-      {1:~                                       }|
-      {1:~                                       }|
-                                              |
-    ]]}
-    feed(':mess<cr>')
-    screen:expect{grid=[[
-      0                                       |
-      1                                       |
-      2                                       |
-      3                                       |
-      {4:-- More --}^                              |
-    ]]}
-    feed('j')
-    screen:expect{grid=[[
-      1                                       |
-      2                                       |
-      3                                       |
-      4                                       |
-      {4:Press ENTER or type command to continue}^ |
-    ]]}
-    feed('<cr>')
   end)
 
   it('handles wrapped lines with line scroll', function()
@@ -1867,7 +1687,7 @@ aliquip ex ea commodo consequat.]])
 
     feed('k')
     screen:expect{grid=[[
-      {7:0}{8:                                  }|
+      {7:0}{8:                          }{7:)}{8:       }|
       {9:1}{10:                                  }|
       {9:2}{10:                                  }|
       {9:3}{10:                                  }|
@@ -1956,7 +1776,6 @@ aliquip ex ea commodo consequat.]])
     -- text is not reflown; existing lines get cut
     screen:try_resize(30, 12)
     screen:expect{grid=[[
-      :lua error(_G.x)              |
       {2:E5108: Error executing lua [st}|
       {2:":lua"]:1: Lorem ipsum dolor s}|
       {2:et, consectetur}               |
@@ -1964,6 +1783,7 @@ aliquip ex ea commodo consequat.]])
       {2:mpore}                         |
       {2:incididunt ut labore et dolore}|
       {2:a aliqua.}                     |
+                                    |
                                     |
                                     |
                                     |
@@ -1972,22 +1792,6 @@ aliquip ex ea commodo consequat.]])
 
     -- continues in a mostly consistent state, but only new lines are
     -- wrapped at the new screen size.
-    feed('<cr>')
-    screen:expect{grid=[[
-      {2:E5108: Error executing lua [st}|
-      {2:":lua"]:1: Lorem ipsum dolor s}|
-      {2:et, consectetur}               |
-      {2:adipisicing elit, sed do eiusm}|
-      {2:mpore}                         |
-      {2:incididunt ut labore et dolore}|
-      {2:a aliqua.}                     |
-      {2:Ut enim ad minim veniam, quis }|
-      {2:nostrud xercitation}           |
-      {2:ullamco laboris nisi ut}       |
-      {2:aliquip ex ea commodo consequa}|
-      {4:-- More --}^                    |
-    ]]}
-
     feed('<cr>')
     screen:expect{grid=[[
       {2:":lua"]:1: Lorem ipsum dolor s}|

@@ -45,24 +45,18 @@ local bufnr_and_namespace_cacher_mt = {
   end,
 }
 
-local diagnostic_cache
-do
-  local group = vim.api.nvim_create_augroup('DiagnosticBufWipeout', {})
-  diagnostic_cache = setmetatable({}, {
-    __index = function(t, bufnr)
-      assert(bufnr > 0, 'Invalid buffer number')
-      vim.api.nvim_create_autocmd('BufWipeout', {
-        group = group,
-        buffer = bufnr,
-        callback = function()
-          rawset(t, bufnr, nil)
-        end,
-      })
-      t[bufnr] = {}
-      return t[bufnr]
-    end,
-  })
-end
+local diagnostic_cache = setmetatable({}, {
+  __index = function(t, bufnr)
+    assert(bufnr > 0, 'Invalid buffer number')
+    vim.api.nvim_buf_attach(bufnr, false, {
+      on_detach = function()
+        rawset(t, bufnr, nil) -- clear cache
+      end,
+    })
+    t[bufnr] = {}
+    return t[bufnr]
+  end,
+})
 
 local diagnostic_cache_extmarks = setmetatable({}, bufnr_and_namespace_cacher_mt)
 local diagnostic_attached_buffers = {}
@@ -74,10 +68,7 @@ local all_namespaces = {}
 ---@private
 local function to_severity(severity)
   if type(severity) == 'string' then
-    return assert(
-      M.severity[string.upper(severity)],
-      string.format('Invalid severity: %s', severity)
-    )
+    return assert(M.severity[string.upper(severity)], string.format('Invalid severity: %s', severity))
   end
   return severity
 end
@@ -286,8 +277,7 @@ local function set_diagnostic_cache(namespace, bufnr, diagnostics)
   for _, diagnostic in ipairs(diagnostics) do
     assert(diagnostic.lnum, 'Diagnostic line number is required')
     assert(diagnostic.col, 'Diagnostic column is required')
-    diagnostic.severity = diagnostic.severity and to_severity(diagnostic.severity)
-      or M.severity.ERROR
+    diagnostic.severity = diagnostic.severity and to_severity(diagnostic.severity) or M.severity.ERROR
     diagnostic.end_lnum = diagnostic.end_lnum or diagnostic.lnum
     diagnostic.end_col = diagnostic.end_col or diagnostic.col
     diagnostic.namespace = namespace
@@ -332,8 +322,13 @@ local function save_extmarks(namespace, bufnr)
     })
     diagnostic_attached_buffers[bufnr] = true
   end
-  diagnostic_cache_extmarks[bufnr][namespace] =
-    vim.api.nvim_buf_get_extmarks(bufnr, namespace, 0, -1, { details = true })
+  diagnostic_cache_extmarks[bufnr][namespace] = vim.api.nvim_buf_get_extmarks(
+    bufnr,
+    namespace,
+    0,
+    -1,
+    { details = true }
+  )
 end
 
 local registered_autocmds = {}
@@ -342,32 +337,6 @@ local registered_autocmds = {}
 local function make_augroup_key(namespace, bufnr)
   local ns = M.get_namespace(namespace)
   return string.format('DiagnosticInsertLeave:%s:%s', bufnr, ns.name)
-end
-
----@private
-local function execute_scheduled_display(namespace, bufnr)
-  local args = bufs_waiting_to_update[bufnr][namespace]
-  if not args then
-    return
-  end
-
-  -- Clear the args so we don't display unnecessarily.
-  bufs_waiting_to_update[bufnr][namespace] = nil
-
-  M.show(namespace, bufnr, nil, args)
-end
-
---- @deprecated
---- Callback scheduled when leaving Insert mode.
----
---- called from the Vimscript autocommand.
----
---- See @ref schedule_display()
----
----@private
-function M._execute_scheduled_display(namespace, bufnr)
-  vim.deprecate('vim.diagnostic._execute_scheduled_display', nil, '0.9')
-  execute_scheduled_display(namespace, bufnr)
 end
 
 --- Table of autocmd events to fire the update for displaying new diagnostic information
@@ -379,15 +348,17 @@ local function schedule_display(namespace, bufnr, args)
 
   local key = make_augroup_key(namespace, bufnr)
   if not registered_autocmds[key] then
-    local group = vim.api.nvim_create_augroup(key, { clear = true })
-    vim.api.nvim_create_autocmd(insert_leave_auto_cmds, {
-      group = group,
-      buffer = bufnr,
-      callback = function()
-        execute_scheduled_display(namespace, bufnr)
-      end,
-      desc = 'vim.diagnostic: display diagnostics',
-    })
+    vim.cmd(string.format(
+      [[augroup %s
+      au!
+      autocmd %s <buffer=%s> lua vim.diagnostic._execute_scheduled_display(%s, %s)
+    augroup END]],
+      key,
+      table.concat(insert_leave_auto_cmds, ','),
+      bufnr,
+      namespace,
+      bufnr
+    ))
     registered_autocmds[key] = true
   end
 end
@@ -397,7 +368,12 @@ local function clear_scheduled_display(namespace, bufnr)
   local key = make_augroup_key(namespace, bufnr)
 
   if registered_autocmds[key] then
-    vim.api.nvim_del_augroup_by_name(key)
+    vim.cmd(string.format(
+      [[augroup %s
+      au!
+    augroup END]],
+      key
+    ))
     registered_autocmds[key] = nil
   end
 end
@@ -422,19 +398,10 @@ local function get_diagnostics(bufnr, opts, clamp)
     if not opts.lnum or d.lnum == opts.lnum then
       if clamp and vim.api.nvim_buf_is_loaded(b) then
         local line_count = buf_line_count[b] - 1
-        if
-          d.lnum > line_count
-          or d.end_lnum > line_count
-          or d.lnum < 0
-          or d.end_lnum < 0
-          or d.col < 0
-          or d.end_col < 0
-        then
+        if d.lnum > line_count or d.end_lnum > line_count or d.lnum < 0 or d.end_lnum < 0 then
           d = vim.deepcopy(d)
           d.lnum = math.max(math.min(d.lnum, line_count), 0)
           d.end_lnum = math.max(math.min(d.end_lnum, line_count), 0)
-          d.col = math.max(d.col, 0)
-          d.end_col = math.max(d.end_col, 0)
         end
       end
       table.insert(diagnostics, d)
@@ -506,8 +473,7 @@ local function next_diagnostic(position, search_forward, bufnr, opts, namespace)
   bufnr = get_bufnr(bufnr)
   local wrap = vim.F.if_nil(opts.wrap, true)
   local line_count = vim.api.nvim_buf_line_count(bufnr)
-  local diagnostics =
-    get_diagnostics(bufnr, vim.tbl_extend('keep', opts, { namespace = namespace }), true)
+  local diagnostics = get_diagnostics(bufnr, vim.tbl_extend('keep', opts, { namespace = namespace }), true)
   local line_diagnostics = diagnostic_lines(diagnostics)
   for i = 0, line_count do
     local offset = i * (search_forward and 1 or -1)
@@ -592,12 +558,12 @@ end
 ---
 --- For example, if a user enables virtual text globally with
 --- <pre>
----   vim.diagnostic.config({ virtual_text = true })
+---   vim.diagnostic.config({virtual_text = true})
 --- </pre>
 ---
 --- and a diagnostic producer sets diagnostics with
 --- <pre>
----   vim.diagnostic.set(ns, 0, diagnostics, { virtual_text = false })
+---   vim.diagnostic.set(ns, 0, diagnostics, {virtual_text = false})
 --- </pre>
 ---
 --- then virtual text will not be enabled for those diagnostics.
@@ -727,7 +693,6 @@ function M.set(namespace, bufnr, diagnostics, opts)
   vim.api.nvim_exec_autocmds('DiagnosticChanged', {
     modeline = false,
     buffer = bufnr,
-    data = { diagnostics = diagnostics },
   })
 end
 
@@ -997,10 +962,7 @@ M.handlers.virtual_text = {
       if opts.virtual_text.format then
         diagnostics = reformat_diagnostics(opts.virtual_text.format, diagnostics)
       end
-      if
-        opts.virtual_text.source
-        and (opts.virtual_text.source ~= 'if_many' or count_sources(bufnr) > 1)
-      then
+      if opts.virtual_text.source and (opts.virtual_text.source ~= 'if_many' or count_sources(bufnr) > 1) then
         diagnostics = prefix_source(diagnostics)
       end
       if opts.virtual_text.severity then
@@ -1072,6 +1034,26 @@ function M._get_virt_text_chunks(line_diags, opts)
 
     return virt_texts
   end
+end
+
+--- Callback scheduled when leaving Insert mode.
+---
+--- This function must be exported publicly so that it is available to be
+--- called from the Vimscript autocommand.
+---
+--- See @ref schedule_display()
+---
+---@private
+function M._execute_scheduled_display(namespace, bufnr)
+  local args = bufs_waiting_to_update[bufnr][namespace]
+  if not args then
+    return
+  end
+
+  -- Clear the args so we don't display unnecessarily.
+  bufs_waiting_to_update[bufnr][namespace] = nil
+
+  M.show(namespace, bufnr, nil, args)
 end
 
 --- Hide currently displayed diagnostics.
@@ -1288,9 +1270,7 @@ function M.open_float(opts, ...)
     -- LSP servers can send diagnostics with `end_col` past the length of the line
     local line_length = #vim.api.nvim_buf_get_lines(bufnr, lnum, lnum + 1, true)[1]
     diagnostics = vim.tbl_filter(function(d)
-      return d.lnum == lnum
-        and math.min(d.col, line_length - 1) <= col
-        and (d.end_col >= col or d.end_lnum > lnum)
+      return d.lnum == lnum and math.min(d.col, line_length - 1) <= col and (d.end_col >= col or d.end_lnum > lnum)
     end, diagnostics)
   end
 
@@ -1344,10 +1324,9 @@ function M.open_float(opts, ...)
     diagnostics = prefix_source(diagnostics)
   end
 
-  local prefix_opt =
-    if_nil(opts.prefix, (scope == 'cursor' and #diagnostics <= 1) and '' or function(_, i)
-      return string.format('%d. ', i)
-    end)
+  local prefix_opt = if_nil(opts.prefix, (scope == 'cursor' and #diagnostics <= 1) and '' or function(_, i)
+    return string.format('%d. ', i)
+  end)
 
   local prefix, prefix_hl_group
   if prefix_opt then
@@ -1532,8 +1511,8 @@ end
 --- <pre>
 --- local s = "WARNING filename:27:3: Variable 'foo' does not exist"
 --- local pattern = "^(%w+) %w+:(%d+):(%d+): (.+)$"
---- local groups = { "severity", "lnum", "col", "message" }
---- vim.diagnostic.match(s, pattern, groups, { WARNING = vim.diagnostic.WARN })
+--- local groups = {"severity", "lnum", "col", "message"}
+--- vim.diagnostic.match(s, pattern, groups, {WARNING = vim.diagnostic.WARN})
 --- </pre>
 ---
 ---@param str string String to parse diagnostics from.

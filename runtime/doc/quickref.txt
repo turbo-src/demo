@@ -638,7 +638,7 @@ Short explanation of each option:		*option-list*
 'cinkeys'	  'cink'    keys that trigger indent when 'cindent' is set
 'cinoptions'	  'cino'    how to do indenting when 'cindent' is set
 'cinwords'	  'cinw'    words where 'si' and 'cin' add an indent
-'cinscopedecls'	  'cinsd'   words that are recognized by 'cino-g'
+'cinscopedecls'	  'cinsd'   words that are recognized by 'cino-g' 
 'clipboard'	  'cb'	    use the clipboard as the unnamed register
 'cmdheight'	  'ch'	    number of lines to use for the command-line
 'cmdwinheight'	  'cwh'     height of the command-line window
@@ -649,7 +649,6 @@ Short explanation of each option:		*option-list*
 'complete'	  'cpt'     specify how Insert mode completion works
 'completefunc'	  'cfu'     function to be used for Insert mode completion
 'completeopt'	  'cot'     options for Insert mode completion
-'completeslash'	  'csl'	    like 'shellslash' for completion
 'concealcursor'	  'cocu'    whether concealable text is hidden in cursor line
 'conceallevel'	  'cole'    whether concealable text is shown or hidden
 'confirm'	  'cf'	    ask what to do about unsaved/read-only files
@@ -786,7 +785,6 @@ Short explanation of each option:		*option-list*
 'mousefocus'	  'mousef'  keyboard focus follows the mouse
 'mousehide'	  'mh'	    hide mouse pointer while typing
 'mousemodel'	  'mousem'  changes meaning of mouse buttons
-'mousescroll'		    amount to scroll by when scrolling with a mouse
 'mouseshape'	  'mouses'  shape of the mouse pointer in different modes
 'mousetime'	  'mouset'  max time between mouse double-click
 'nrformats'	  'nf'	    number formats recognized for CTRL-A command

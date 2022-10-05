@@ -8,7 +8,6 @@
 #include <assert.h>
 #include <limits.h>
 #include <stddef.h>
-#include <stdbool.h>
 
 #ifdef __GNUC__
 # define FPURE __attribute__((const))
@@ -84,7 +83,5 @@ MPACK_API int mpack_read(mpack_tokbuf_t *tb, const char **b, size_t *bl,
     mpack_token_t *tok) FUNUSED FNONULL;
 MPACK_API int mpack_write(mpack_tokbuf_t *tb, char **b, size_t *bl,
     const mpack_token_t *tok) FUNUSED FNONULL;
-int mpack_rtoken(const char **buf, size_t *buflen,
-    mpack_token_t *tok);
 
 #endif  /* MPACK_CORE_H */

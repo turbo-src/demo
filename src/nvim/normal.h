@@ -22,7 +22,9 @@ typedef enum {
   kMTUnknown = -1,  ///< Unknown or invalid motion type
 } MotionType;
 
-// Arguments for operators.
+/*
+ * Arguments for operators.
+ */
 typedef struct oparg_S {
   int op_type;                  // current pending operator type
   int regname;                  // register to use for the operator
@@ -51,9 +53,11 @@ typedef struct oparg_S {
                                 // block
 } oparg_T;
 
-// Arguments for Normal mode commands.
+/*
+ * Arguments for Normal mode commands.
+ */
 typedef struct cmdarg_S {
-  oparg_T *oap;                 // Operator arguments
+  oparg_T *oap;             // Operator arguments
   int prechar;                  // prefix character (optional, always 'g')
   int cmdchar;                  // command character
   int nchar;                    // next command character (optional)
@@ -65,7 +69,7 @@ typedef struct cmdarg_S {
   long count1;                  // count before command, default 1
   int arg;                      // extra argument from nv_cmds[]
   int retval;                   // return: CA_* values
-  char *searchbuf;              // return: pointer to search pattern or NULL
+  char_u *searchbuf;       // return: pointer to search pattern or NULL
 } cmdarg_T;
 
 // values for retval:

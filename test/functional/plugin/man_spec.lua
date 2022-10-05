@@ -1,17 +1,10 @@
 local helpers = require('test.functional.helpers')(after_each)
 local Screen = require('test.functional.ui.screen')
-local command, rawfeed = helpers.command, helpers.rawfeed
+local command, eval, rawfeed = helpers.command, helpers.eval, helpers.rawfeed
 local clear = helpers.clear
-local exec_lua = helpers.exec_lua
 local funcs = helpers.funcs
 local nvim_prog = helpers.nvim_prog
 local matches = helpers.matches
-
-clear()
-if funcs.executable('man') == 0 then
-  pending('missing "man" command', function() end)
-  return
-end
 
 describe(':Man', function()
   before_each(function()
@@ -51,7 +44,7 @@ describe(':Man', function()
                                                             |
       ]]}
 
-      exec_lua[[require'man'.init_pager()]]
+      eval('man#init_pager()')
 
       screen:expect([[
       ^this {b:is} {b:a} test                                      |
@@ -75,7 +68,7 @@ describe(':Man', function()
                                                             |
       ]=]}
 
-      exec_lua[[require'man'.init_pager()]]
+      eval('man#init_pager()')
 
       screen:expect([[
       ^this {b:is }{bi:a }{biu:test}                                      |
@@ -90,7 +83,7 @@ describe(':Man', function()
       rawfeed([[
         ithis i<C-v><C-h>is<C-v><C-h>s あ<C-v><C-h>あ test
         with _<C-v><C-h>ö_<C-v><C-h>v_<C-v><C-h>e_<C-v><C-h>r_<C-v><C-h>s_<C-v><C-h>t_<C-v><C-h>r_<C-v><C-h>u_<C-v><C-h>̃_<C-v><C-h>c_<C-v><C-h>k te<C-v><ESC>[3mxt¶<C-v><ESC>[0m<ESC>]])
-      exec_lua[[require'man'.init_pager()]]
+      eval('man#init_pager()')
 
       screen:expect([[
       ^this {b:is} {b:あ} test                                     |
@@ -106,7 +99,7 @@ describe(':Man', function()
         i_<C-v><C-h>_b<C-v><C-h>be<C-v><C-h>eg<C-v><C-h>gi<C-v><C-h>in<C-v><C-h>ns<C-v><C-h>s
         m<C-v><C-h>mi<C-v><C-h>id<C-v><C-h>d_<C-v><C-h>_d<C-v><C-h>dl<C-v><C-h>le<C-v><C-h>e
         _<C-v><C-h>m_<C-v><C-h>i_<C-v><C-h>d_<C-v><C-h>__<C-v><C-h>d_<C-v><C-h>l_<C-v><C-h>e<ESC>]])
-      exec_lua[[require'man'.init_pager()]]
+      eval('man#init_pager()')
 
       screen:expect([[
       {b:^_begins}                                             |
@@ -122,7 +115,7 @@ describe(':Man', function()
         i· ·<C-v><C-h>·
         +<C-v><C-h>o
         +<C-v><C-h>+<C-v><C-h>o<C-v><C-h>o double<ESC>]])
-      exec_lua[[require'man'.init_pager()]]
+      eval('man#init_pager()')
 
       screen:expect([[
       ^· {b:·}                                                 |
@@ -139,7 +132,7 @@ describe(':Man', function()
         <C-v><C-[>[44m    4  <C-v><C-[>[45m    5  <C-v><C-[>[46m    6  <C-v><C-[>[47m    7  <C-v><C-[>[100m    8  <C-v><C-[>[101m    9
         <C-v><C-[>[102m   10  <C-v><C-[>[103m   11  <C-v><C-[>[104m   12  <C-v><C-[>[105m   13  <C-v><C-[>[106m   14  <C-v><C-[>[107m   15
         <C-v><C-[>[48:5:16m   16  <ESC>]])
-      exec_lua[[require'man'.init_pager()]]
+      eval('man#init_pager()')
 
       screen:expect([[
        ^    0      1      2      3                          |

@@ -1,7 +1,7 @@
 " Vim filetype plugin file
 " Language:	FreeBASIC
 " Maintainer:	Doug Kearns <dougkearns@gmail.com>
-" Last Change:	2022 Jun 24
+" Last Change:	2021 Mar 16
 
 " Setup {{{1
 if exists("b:did_ftplugin")
@@ -21,8 +21,7 @@ let &l:comments = "sO:*\ -,mO:*\ \ ,exO:*/,s1:/',mb:',ex:'/,:''," .. &l:comments
 
 " Match words {{{1
 if exists("loaded_matchit")
-  let s:line_start = '\%(^\s*\)\@<='
-  let s:not_end    = '\%(end\s\+\)\@<!'
+  let s:not_end = '\%(end\s\+\)\@<!'
 
   let b:match_words ..= ','
 
@@ -50,32 +49,17 @@ if exists("loaded_matchit")
   endif
 
   let b:match_words ..= s:not_end .. '\<enum\>:\<end\s\+enum\>,' ..
-		\     s:line_start .. '#\s*\%(if\|ifdef\|ifndef\)\>:' ..
-		\       s:line_start .. '#\s*\%(else\|elseif\)\>:' ..
-		\     s:line_start .. '#\s*endif\>,' ..
-		\     s:line_start .. '#\s*macro\>:' .. s:line_start .. '#\s*endmacro\>,' ..
-		\     "/':'/"
+		  \	'^#\s*\%(if\|ifdef\|ifndef\)\>:^#\s*\%(else\|elseif\)\>:^#\s*endif\>,' ..
+		  \	'^#\s*macro\>:^#\s*endmacro\>'
 
-  " skip "function = <retval>" and "continue { do | for | while }"
-  if s:dialect == "qb"
-    let s:continue = "__continue"
-  else
-    let s:continue = "continue"
-  endif
-  let b:match_skip ..= ' || strpart(getline("."), col(".") - 1) =~? "^\\<function\\s\\+="' ..
-		  \    ' || strpart(getline("."), 0, col(".") ) =~? "\\<' .. s:continue .. '\\s\\+"'
+  " skip "function = <retval>"
+  let b:match_skip ..= '|| strpart(getline("."), col(".") - 1) =~? "^\\<function\\s\\+="'
 
-  unlet s:not_end s:line_start
-endif
-
-if (has("gui_win32") || has("gui_gtk")) && exists("b:basic_set_browsefilter")
-  let b:browsefilter = "FreeBASIC Source Files (*.bas)\t*.bas\n" ..
-		\      "FreeBASIC Header Files (*.bi)\t*.bi\n" ..
-		\      "All Files (*.*)\t*.*\n"
+  unlet s:not_end
 endif
 
 " Cleanup {{{1
 let &cpo = s:cpo_save
-unlet s:cpo_save s:dialect
+unlet s:cpo_save
 
 " vim: nowrap sw=2 sts=2 ts=8 noet fdm=marker:

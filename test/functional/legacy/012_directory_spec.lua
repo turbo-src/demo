@@ -16,7 +16,6 @@ local insert = helpers.insert
 local command = helpers.command
 local write_file = helpers.write_file
 local curbufmeths = helpers.curbufmeths
-local expect_exit = helpers.expect_exit
 
 local function ls_dir_sorted(dirname)
   local files = {}
@@ -44,7 +43,7 @@ describe("'directory' option", function()
     clear()
   end)
   teardown(function()
-    expect_exit(command, 'qall!')
+    command('qall!')
     helpers.rmdir('Xtest.je')
     helpers.rmdir('Xtest2')
     os.remove('Xtest1')

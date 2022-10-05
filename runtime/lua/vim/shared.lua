@@ -254,11 +254,7 @@ local function tbl_extend(behavior, deep_extend, ...)
   end
 
   if select('#', ...) < 2 then
-    error(
-      'wrong number of arguments (given '
-        .. tostring(1 + select('#', ...))
-        .. ', expected at least 3)'
-    )
+    error('wrong number of arguments (given ' .. tostring(1 + select('#', ...)) .. ', expected at least 3)')
   end
 
   local ret = {}
@@ -526,7 +522,7 @@ function vim.trim(s)
   return s:match('^%s*(.*%S)') or ''
 end
 
---- Escapes magic chars in |lua-patterns|.
+--- Escapes magic chars in a Lua pattern.
 ---
 ---@see https://github.com/rxi/lume
 ---@param s string String to escape
@@ -654,8 +650,7 @@ do
         -- Check user-provided validation function
         local valid, optional_message = types(val)
         if not valid then
-          local error_message =
-            string.format('%s: expected %s, got %s', param_name, (spec[3] or '?'), tostring(val))
+          local error_message = string.format('%s: expected %s, got %s', param_name, (spec[3] or '?'), tostring(val))
           if optional_message ~= nil then
             error_message = error_message .. string.format('. Info: %s', optional_message)
           end
@@ -677,13 +672,7 @@ do
           end
         end
         if not success then
-          return false,
-            string.format(
-              '%s: expected %s, got %s',
-              param_name,
-              table.concat(types, '|'),
-              type(val)
-            )
+          return false, string.format('%s: expected %s, got %s', param_name, table.concat(types, '|'), type(val))
         end
       else
         return false, string.format('invalid type name: %s', tostring(types))
@@ -713,31 +702,6 @@ function vim.is_callable(f)
     return false
   end
   return type(m.__call) == 'function'
-end
-
---- Creates a table whose members are automatically created when accessed, if they don't already
---- exist.
----
---- They mimic defaultdict in python.
----
---- If @p create is @c nil, this will create a defaulttable whose constructor function is
---- this function, effectively allowing to create nested tables on the fly:
----
---- <pre>
---- local a = vim.defaulttable()
---- a.b.c = 1
---- </pre>
----
----@param create function|nil The function called to create a missing value.
----@return table Empty table with metamethod
-function vim.defaulttable(create)
-  create = create or vim.defaulttable
-  return setmetatable({}, {
-    __index = function(tbl, key)
-      rawset(tbl, key, create())
-      return rawget(tbl, key)
-    end,
-  })
 end
 
 return vim

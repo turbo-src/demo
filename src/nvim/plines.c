@@ -98,7 +98,7 @@ int plines_win_nofill(win_T *wp, linenr_T lnum, bool winheight)
 /// "wp".  Does not care about folding, 'wrap' or 'diff'.
 int plines_win_nofold(win_T *wp, linenr_T lnum)
 {
-  char *s;
+  char_u *s;
   unsigned int col;
   int width;
 
@@ -106,7 +106,7 @@ int plines_win_nofold(win_T *wp, linenr_T lnum)
   if (*s == NUL) {  // empty line
     return 1;
   }
-  col = win_linetabsize(wp, lnum, (char_u *)s, MAXCOL);
+  col = win_linetabsize(wp, s, MAXCOL);
 
   // If list mode is on, then the '$' at the end of the line may take up one
   // extra column.
@@ -144,28 +144,24 @@ int plines_win_col(win_T *wp, linenr_T lnum, long column)
     return lines + 1;
   }
 
-  char_u *line = (char_u *)ml_get_buf(wp->w_buffer, lnum, false);
+  char_u *line = ml_get_buf(wp->w_buffer, lnum, false);
+  char_u *s = line;
 
   colnr_T col = 0;
-  chartabsize_T cts;
-
-  init_chartabsize_arg(&cts, wp, lnum, 0, (char *)line, (char *)line);
-  while (*cts.cts_ptr != NUL && --column >= 0) {
-    cts.cts_vcol += win_lbr_chartabsize(&cts, NULL);
-    MB_PTR_ADV(cts.cts_ptr);
+  while (*s != NUL && --column >= 0) {
+    col += win_lbr_chartabsize(wp, line, s, col, NULL);
+    MB_PTR_ADV(s);
   }
 
-  // If *cts.cts_ptr is a TAB, and the TAB is not displayed as ^I, and we're not
-  // in MODE_INSERT state, then col must be adjusted so that it represents the
+  // If *s is a TAB, and the TAB is not displayed as ^I, and we're not in
+  // MODE_INSERT state, then col must be adjusted so that it represents the
   // last screen position of the TAB.  This only fixes an error when the TAB
   // wraps from one screen line to the next (when 'columns' is not a multiple
   // of 'ts') -- webb.
-  col = cts.cts_vcol;
-  if (*cts.cts_ptr == TAB && (State & MODE_NORMAL)
+  if (*s == TAB && (State & MODE_NORMAL)
       && (!wp->w_p_list || wp->w_p_lcs_chars.tab1)) {
-    col += win_lbr_chartabsize(&cts, NULL) - 1;
+    col += win_lbr_chartabsize(wp, line, s, col, NULL) - 1;
   }
-  clear_chartabsize_arg(&cts);
 
   // Add column offset for 'number', 'relativenumber', 'foldcolumn', etc.
   int width = wp->w_width_inner - win_col_off(wp);
@@ -227,7 +223,7 @@ int plines_m_win(win_T *wp, linenr_T first, linenr_T last)
 /// @param col
 ///
 /// @return Number of characters.
-int win_chartabsize(win_T *wp, char *p, colnr_T col)
+int win_chartabsize(win_T *wp, char_u *p, colnr_T col)
 {
   buf_T *buf = wp->w_buffer;
   if (*p == TAB && (!wp->w_p_list || wp->w_p_lcs_chars.tab1)) {
@@ -245,24 +241,24 @@ int win_chartabsize(win_T *wp, char *p, colnr_T col)
 /// @return Number of characters the string will take on the screen.
 int linetabsize(char_u *s)
 {
-  return linetabsize_col(0, (char *)s);
+  return linetabsize_col(0, s);
 }
 
-/// Like linetabsize(), but "s" starts at column "startcol".
+/// Like linetabsize(), but starting at column "startcol".
 ///
 /// @param startcol
 /// @param s
 ///
 /// @return Number of characters the string will take on the screen.
-int linetabsize_col(int startcol, char *s)
+int linetabsize_col(int startcol, char_u *s)
 {
-  chartabsize_T cts;
-  init_chartabsize_arg(&cts, curwin, 0, startcol, s, s);
-  while (*cts.cts_ptr != NUL) {
-    cts.cts_vcol += lbr_chartabsize_adv(&cts);
+  colnr_T col = startcol;
+  char_u *line = s;  // pointer to start of line, for breakindent
+
+  while (*s != NUL) {
+    col += lbr_chartabsize_adv(line, &s, col);
   }
-  clear_chartabsize_arg(&cts);
-  return cts.cts_vcol;
+  return (int)col;
 }
 
 /// Like linetabsize(), but for a given window instead of the current one.
@@ -272,37 +268,18 @@ int linetabsize_col(int startcol, char *s)
 /// @param len
 ///
 /// @return Number of characters the string will take on the screen.
-unsigned int win_linetabsize(win_T *wp, linenr_T lnum, char_u *line, colnr_T len)
+unsigned int win_linetabsize(win_T *wp, char_u *line, colnr_T len)
 {
-  chartabsize_T cts;
-  init_chartabsize_arg(&cts, wp, lnum, 0, (char *)line, (char *)line);
-  for (; *cts.cts_ptr != NUL && (len == MAXCOL || cts.cts_ptr < (char *)line + len);
-       MB_PTR_ADV(cts.cts_ptr)) {
-    cts.cts_vcol += win_lbr_chartabsize(&cts, NULL);
+  colnr_T col = 0;
+
+  for (char_u *s = line;
+       *s != NUL && (len == MAXCOL || s < line + len);
+       MB_PTR_ADV(s)) {
+    col += win_lbr_chartabsize(wp, line, s, col, NULL);
   }
-  clear_chartabsize_arg(&cts);
-  return (unsigned int)cts.cts_vcol;
-}
 
-/// Prepare the structure passed to chartabsize functions.
-///
-/// "line" is the start of the line, "ptr" is the first relevant character.
-/// When "lnum" is zero do not use text properties that insert text.
-void init_chartabsize_arg(chartabsize_T *cts, win_T *wp, linenr_T lnum FUNC_ATTR_UNUSED,
-                          colnr_T col, char *line, char *ptr)
-{
-  cts->cts_win = wp;
-  cts->cts_vcol = col;
-  cts->cts_line = line;
-  cts->cts_ptr = ptr;
-  cts->cts_cur_text_width = 0;
-  // TODO(bfredl): actually lookup inline virtual text here
-  cts->cts_has_virt_text = false;
+  return (unsigned int)col;
 }
-
-/// Free any allocated item in "cts".
-void clear_chartabsize_arg(chartabsize_T *cts)
-{}
 
 /// like win_chartabsize(), but also check for line breaks on the screen
 ///
@@ -311,16 +288,16 @@ void clear_chartabsize_arg(chartabsize_T *cts)
 /// @param col
 ///
 /// @return The number of characters taken up on the screen.
-int lbr_chartabsize(chartabsize_T *cts)
+int lbr_chartabsize(char_u *line, unsigned char *s, colnr_T col)
 {
   if (!curwin->w_p_lbr && *get_showbreak_value(curwin) == NUL
-      && !curwin->w_p_bri && !cts->cts_has_virt_text) {
+      && !curwin->w_p_bri) {
     if (curwin->w_p_wrap) {
-      return win_nolbr_chartabsize(cts, NULL);
+      return win_nolbr_chartabsize(curwin, s, col, NULL);
     }
-    return win_chartabsize(curwin, cts->cts_ptr, cts->cts_vcol);
+    return win_chartabsize(curwin, s, col);
   }
-  return win_lbr_chartabsize(cts, NULL);
+  return win_lbr_chartabsize(curwin, line == NULL ? s: line, s, col, NULL);
 }
 
 /// Call lbr_chartabsize() and advance the pointer.
@@ -330,12 +307,12 @@ int lbr_chartabsize(chartabsize_T *cts)
 /// @param col
 ///
 /// @return The number of characters take up on the screen.
-int lbr_chartabsize_adv(chartabsize_T *cts)
+int lbr_chartabsize_adv(char_u *line, char_u **s, colnr_T col)
 {
   int retval;
 
-  retval = lbr_chartabsize(cts);
-  MB_PTR_ADV(cts->cts_ptr);
+  retval = lbr_chartabsize(line, *s, col);
+  MB_PTR_ADV(*s);
   return retval;
 }
 
@@ -345,19 +322,17 @@ int lbr_chartabsize_adv(chartabsize_T *cts)
 /// string at start of line.  Warning: *headp is only set if it's a non-zero
 /// value, init to 0 before calling.
 ///
-/// @param cts
+/// @param wp
+/// @param line
+/// @param s
+/// @param col
 /// @param headp
 ///
 /// @return The number of characters taken up on the screen.
-int win_lbr_chartabsize(chartabsize_T *cts, int *headp)
+int win_lbr_chartabsize(win_T *wp, char_u *line, char_u *s, colnr_T col, int *headp)
 {
-  win_T *wp = cts->cts_win;
-  char *line = cts->cts_line;  // start of the line
-  char_u *s = (char_u *)cts->cts_ptr;
-  colnr_T vcol = cts->cts_vcol;
-
   colnr_T col2;
-  colnr_T col_adj = 0;  // vcol + screen size of tab
+  colnr_T col_adj = 0;  // col + screen size of tab
   colnr_T colmax;
   int added;
   int mb_added = 0;
@@ -365,23 +340,16 @@ int win_lbr_chartabsize(chartabsize_T *cts, int *headp)
   char_u *ps;
   int n;
 
-  cts->cts_cur_text_width = 0;
-
   // No 'linebreak', 'showbreak' and 'breakindent': return quickly.
-  if (!wp->w_p_lbr && !wp->w_p_bri && *get_showbreak_value(wp) == NUL
-      && !cts->cts_has_virt_text) {
+  if (!wp->w_p_lbr && !wp->w_p_bri && *get_showbreak_value(wp) == NUL) {
     if (wp->w_p_wrap) {
-      return win_nolbr_chartabsize(cts, headp);
+      return win_nolbr_chartabsize(wp, s, col, headp);
     }
-    return win_chartabsize(wp, (char *)s, vcol);
+    return win_chartabsize(wp, s, col);
   }
 
-  // First get normal size, without 'linebreak' or virtual text
-  int size = win_chartabsize(wp, (char *)s, vcol);
-  if (cts->cts_has_virt_text) {
-    // TODO(bfredl): inline virtual text
-  }
-
+  // First get normal size, without 'linebreak'
+  int size = win_chartabsize(wp, s, col);
   int c = *s;
   if (*s == TAB) {
     col_adj = size - 1;
@@ -397,15 +365,15 @@ int win_lbr_chartabsize(chartabsize_T *cts, int *headp)
     // Count all characters from first non-blank after a blank up to next
     // non-blank after a blank.
     numberextra = win_col_off(wp);
-    col2 = vcol;
+    col2 = col;
     colmax = (colnr_T)(wp->w_width_inner - numberextra - col_adj);
 
-    if (vcol >= colmax) {
+    if (col >= colmax) {
       colmax += col_adj;
       n = colmax + win_col_off2(wp);
 
       if (n > 0) {
-        colmax += (((vcol - colmax) / n) + 1) * n - col_adj;
+        colmax += (((col - colmax) / n) + 1) * n - col_adj;
       }
     }
 
@@ -415,21 +383,21 @@ int win_lbr_chartabsize(chartabsize_T *cts, int *headp)
       c = *s;
 
       if (!(c != NUL
-            && (vim_isbreak(c) || col2 == vcol || !vim_isbreak((int)(*ps))))) {
+            && (vim_isbreak(c) || col2 == col || !vim_isbreak((int)(*ps))))) {
         break;
       }
 
-      col2 += win_chartabsize(wp, (char *)s, col2);
+      col2 += win_chartabsize(wp, s, col2);
 
       if (col2 >= colmax) {  // doesn't fit
-        size = colmax - vcol + col_adj;
+        size = colmax - col + col_adj;
         break;
       }
     }
   } else if ((size == 2)
              && (MB_BYTE2LEN(*s) > 1)
              && wp->w_p_wrap
-             && in_win_border(wp, vcol)) {
+             && in_win_border(wp, col)) {
     // Count the ">" in the last column.
     size++;
     mb_added = 1;
@@ -440,41 +408,41 @@ int win_lbr_chartabsize(chartabsize_T *cts, int *headp)
   // Set *headp to the size of what we add.
   added = 0;
 
-  char *const sbr = (char *)get_showbreak_value(wp);
-  if ((*sbr != NUL || wp->w_p_bri) && wp->w_p_wrap && vcol != 0) {
+  char_u *const sbr = get_showbreak_value(wp);
+  if ((*sbr != NUL || wp->w_p_bri) && wp->w_p_wrap && col != 0) {
     colnr_T sbrlen = 0;
     int numberwidth = win_col_off(wp);
 
     numberextra = numberwidth;
-    vcol += numberextra + mb_added;
+    col += numberextra + mb_added;
 
-    if (vcol >= (colnr_T)wp->w_width_inner) {
-      vcol -= wp->w_width_inner;
+    if (col >= (colnr_T)wp->w_width_inner) {
+      col -= wp->w_width_inner;
       numberextra = wp->w_width_inner - (numberextra - win_col_off2(wp));
-      if (vcol >= numberextra && numberextra > 0) {
-        vcol %= numberextra;
+      if (col >= numberextra && numberextra > 0) {
+        col %= numberextra;
       }
       if (*sbr != NUL) {
-        sbrlen = (colnr_T)mb_charlen((char_u *)sbr);
-        if (vcol >= sbrlen) {
-          vcol -= sbrlen;
+        sbrlen = (colnr_T)mb_charlen(sbr);
+        if (col >= sbrlen) {
+          col -= sbrlen;
         }
       }
-      if (vcol >= numberextra && numberextra > 0) {
-        vcol %= numberextra;
-      } else if (vcol > 0 && numberextra > 0) {
-        vcol += numberwidth - win_col_off2(wp);
+      if (col >= numberextra && numberextra > 0) {
+        col %= numberextra;
+      } else if (col > 0 && numberextra > 0) {
+        col += numberwidth - win_col_off2(wp);
       }
 
       numberwidth -= win_col_off2(wp);
     }
 
-    if (vcol == 0 || (vcol + size + sbrlen > (colnr_T)wp->w_width_inner)) {
+    if (col == 0 || (col + size + sbrlen > (colnr_T)wp->w_width_inner)) {
       if (*sbr != NUL) {
         if (size + sbrlen + numberwidth > (colnr_T)wp->w_width_inner) {
           // Calculate effective window width.
           int width = (colnr_T)wp->w_width_inner - sbrlen - numberwidth;
-          int prev_width = vcol ? ((colnr_T)wp->w_width_inner - (sbrlen + vcol))
+          int prev_width = col ? ((colnr_T)wp->w_width_inner - (sbrlen + col))
                                : 0;
 
           if (width <= 0) {
@@ -491,11 +459,11 @@ int win_lbr_chartabsize(chartabsize_T *cts, int *headp)
       }
 
       if (wp->w_p_bri) {
-        added += get_breakindent_win(wp, (char_u *)line);
+        added += get_breakindent_win(wp, line);
       }
 
       size += added;
-      if (vcol != 0) {
+      if (col != 0) {
         added = 0;
       }
     }
@@ -517,11 +485,8 @@ int win_lbr_chartabsize(chartabsize_T *cts, int *headp)
 /// @param headp
 ///
 /// @return The number of characters take up on the screen.
-static int win_nolbr_chartabsize(chartabsize_T *cts, int *headp)
+static int win_nolbr_chartabsize(win_T *wp, char_u *s, colnr_T col, int *headp)
 {
-  win_T *wp = cts->cts_win;
-  char *s = cts->cts_ptr;
-  colnr_T col = cts->cts_vcol;
   int n;
 
   if ((*s == TAB) && (!wp->w_p_list || wp->w_p_lcs_chars.tab1)) {
@@ -533,7 +498,7 @@ static int win_nolbr_chartabsize(chartabsize_T *cts, int *headp)
 
   // Add one cell for a double-width character in the last column of the
   // window, displayed with a ">".
-  if ((n == 2) && (MB_BYTE2LEN((uint8_t)(*s)) > 1) && in_win_border(wp, col)) {
+  if ((n == 2) && (MB_BYTE2LEN(*s) > 1) && in_win_border(wp, col)) {
     if (headp != NULL) {
       *headp = 1;
     }

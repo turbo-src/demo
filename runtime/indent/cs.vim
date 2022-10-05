@@ -3,10 +3,13 @@
 " Maintainer:          Nick Jensen <nickspoon@gmail.com>
 " Former Maintainers:  Aquila Deus
 "                      Johannes Zellner <johannes@zellner.org>
-" Last Change:         2020-03-26
+" Last Change:         2018-11-21
+" Filenames:           *.cs
 " License:             Vim (see :h license)
 " Repository:          https://github.com/nickspoons/vim-cs
+"
 
+" Only load this indent file when no other was loaded.
 if exists('b:did_indent')
   finish
 endif
@@ -19,23 +22,19 @@ set cpoptions&vim
 setlocal indentexpr=GetCSIndent(v:lnum)
 
 function! s:IsCompilerDirective(line)
-  " Exclude #region and #endregion - these should be indented normally
-  return a:line =~# '^\s*#' && !s:IsRegionDirective(a:line)
-endf
-
-function! s:IsRegionDirective(line)
-  return a:line =~# '^\s*#\s*region' || a:line =~# '^\s*#\s*endregion'
+  return a:line =~? '^\s*#'
 endf
 
 function! s:IsAttributeLine(line)
-  return a:line =~# '^\s*\[[A-Za-z]' && a:line =~# '\]$'
+  return a:line =~? '^\s*\[[A-Za-z]' && a:line =~? '\]$'
 endf
 
 function! s:FindPreviousNonCompilerDirectiveLine(start_lnum)
   for delta in range(0, a:start_lnum)
     let lnum = a:start_lnum - delta
     let line = getline(lnum)
-    if !s:IsCompilerDirective(line) && !s:IsRegionDirective(line)
+    let is_directive = s:IsCompilerDirective(line)
+    if !is_directive
       return lnum
     endif
   endfor
@@ -59,9 +58,8 @@ function! GetCSIndent(lnum) abort
   let lnum = s:FindPreviousNonCompilerDirectiveLine(a:lnum - 1)
   let previous_code_line = getline(lnum)
   if s:IsAttributeLine(previous_code_line)
-    return indent(lnum)
-  elseif s:IsRegionDirective(this_line)
-    return cindent(lnum)
+    let ind = indent(lnum)
+    return ind
   else
     return cindent(a:lnum)
   endif

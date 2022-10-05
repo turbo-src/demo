@@ -117,16 +117,16 @@ endif()
 globrecurse_wrapper(RUNTIME_PROGRAMS ${CMAKE_CURRENT_SOURCE_DIR} *.awk *.sh *.bat)
 
 foreach(PROG ${RUNTIME_PROGRAMS})
-  get_filename_component(BASEDIR ${PROG} DIRECTORY)
+  get_filename_component(BASEDIR ${PROG} PATH)
   install_helper(PROGRAMS ${PROG}
                  DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/nvim/runtime/${BASEDIR})
 endforeach()
 
 globrecurse_wrapper(RUNTIME_FILES ${CMAKE_CURRENT_SOURCE_DIR}
-  *.vim *.lua *.scm *.dict *.py *.rb *.ps *.spl *.tutor *.tutor.json)
+  *.vim *.lua *.dict *.py *.rb *.ps *.spl *.tutor *.tutor.json)
 
 foreach(F ${RUNTIME_FILES})
-  get_filename_component(BASEDIR ${F} DIRECTORY)
+  get_filename_component(BASEDIR ${F} PATH)
   install_helper(FILES ${F}
                  DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/nvim/runtime/${BASEDIR})
 endforeach()

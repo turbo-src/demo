@@ -1,12 +1,10 @@
 #ifndef NVIM_POS_H
 #define NVIM_POS_H
 
-#include <inttypes.h>
-
 /// Line number type
-typedef int32_t linenr_T;
+typedef long linenr_T;
 /// Format used to print values which have linenr_T type
-#define PRIdLINENR PRId32
+#define PRIdLINENR "ld"
 
 /// Column number type
 typedef int colnr_T;

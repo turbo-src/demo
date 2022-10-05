@@ -156,10 +156,10 @@ P.seq = function(...)
   return function(input, pos)
     local values = {}
     local new_pos = pos
-    for i, parser in ipairs(parsers) do
+    for _, parser in ipairs(parsers) do
       local result = parser(input, new_pos)
       if result.parsed then
-        values[i] = result.value
+        table.insert(values, result.value)
         new_pos = result.pos
       else
         return P.unmatch(pos)
@@ -255,13 +255,7 @@ S.format = P.any(
       S.int,
       S.colon,
       S.slash,
-      P.any(
-        P.token('upcase'),
-        P.token('downcase'),
-        P.token('capitalize'),
-        P.token('camelcase'),
-        P.token('pascalcase')
-      ),
+      P.any(P.token('upcase'), P.token('downcase'), P.token('capitalize'), P.token('camelcase'), P.token('pascalcase')),
       S.close
     ),
     function(values)
@@ -278,11 +272,10 @@ S.format = P.any(
       S.open,
       S.int,
       S.colon,
-      P.seq(
-        S.question,
-        P.opt(P.take_until({ ':' }, { '\\' })),
-        S.colon,
-        P.opt(P.take_until({ '}' }, { '\\' }))
+      P.any(
+        P.seq(S.question, P.take_until({ ':' }, { '\\' }), S.colon, P.take_until({ '}' }, { '\\' })),
+        P.seq(S.plus, P.take_until({ '}' }, { '\\' })),
+        P.seq(S.minus, P.take_until({ '}' }, { '\\' }))
       ),
       S.close
     ),
@@ -290,56 +283,8 @@ S.format = P.any(
       return setmetatable({
         type = Node.Type.FORMAT,
         capture_index = values[3],
-        if_text = values[5][2] and values[5][2].esc or '',
-        else_text = values[5][4] and values[5][4].esc or '',
-      }, Node)
-    end
-  ),
-  P.map(
-    P.seq(
-      S.dollar,
-      S.open,
-      S.int,
-      S.colon,
-      P.seq(S.plus, P.opt(P.take_until({ '}' }, { '\\' }))),
-      S.close
-    ),
-    function(values)
-      return setmetatable({
-        type = Node.Type.FORMAT,
-        capture_index = values[3],
-        if_text = values[5][2] and values[5][2].esc or '',
-        else_text = '',
-      }, Node)
-    end
-  ),
-  P.map(
-    P.seq(
-      S.dollar,
-      S.open,
-      S.int,
-      S.colon,
-      S.minus,
-      P.opt(P.take_until({ '}' }, { '\\' })),
-      S.close
-    ),
-    function(values)
-      return setmetatable({
-        type = Node.Type.FORMAT,
-        capture_index = values[3],
-        if_text = '',
-        else_text = values[6] and values[6].esc or '',
-      }, Node)
-    end
-  ),
-  P.map(
-    P.seq(S.dollar, S.open, S.int, S.colon, P.opt(P.take_until({ '}' }, { '\\' })), S.close),
-    function(values)
-      return setmetatable({
-        type = Node.Type.FORMAT,
-        capture_index = values[3],
-        if_text = '',
-        else_text = values[5] and values[5].esc or '',
+        if_text = values[5][2].esc,
+        else_text = (values[5][4] or {}).esc,
       }, Node)
     end
   )
@@ -388,26 +333,12 @@ S.tabstop = P.any(
 
 S.placeholder = P.any(
   P.map(
-    P.seq(
-      S.dollar,
-      S.open,
-      S.int,
-      S.colon,
-      P.opt(P.many(P.any(S.toplevel, S.text({ '$', '}' }, { '\\' })))),
-      S.close
-    ),
+    P.seq(S.dollar, S.open, S.int, S.colon, P.many(P.any(S.toplevel, S.text({ '$', '}' }, { '\\' }))), S.close),
     function(values)
       return setmetatable({
         type = Node.Type.PLACEHOLDER,
         tabstop = values[3],
-        -- insert empty text if opt did not match.
-        children = values[5] or {
-          setmetatable({
-            type = Node.Type.TEXT,
-            raw = '',
-            esc = '',
-          }, Node),
-        },
+        children = values[5],
       }, Node)
     end
   )
@@ -455,14 +386,7 @@ S.variable = P.any(
     }, Node)
   end),
   P.map(
-    P.seq(
-      S.dollar,
-      S.open,
-      S.var,
-      S.colon,
-      P.many(P.any(S.toplevel, S.text({ '$', '}' }, { '\\' }))),
-      S.close
-    ),
+    P.seq(S.dollar, S.open, S.var, S.colon, P.many(P.any(S.toplevel, S.text({ '$', '}' }, { '\\' }))), S.close),
     function(values)
       return setmetatable({
         type = Node.Type.VARIABLE,

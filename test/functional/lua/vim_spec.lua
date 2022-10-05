@@ -22,8 +22,7 @@ local remove_trace = helpers.remove_trace
 local mkdir_p = helpers.mkdir_p
 local rmdir = helpers.rmdir
 local write_file = helpers.write_file
-local expect_exit = helpers.expect_exit
-local poke_eventloop = helpers.poke_eventloop
+
 
 describe('lua stdlib', function()
   before_each(clear)
@@ -795,20 +794,6 @@ describe('lua stdlib', function()
           pcall_err(exec_lua, "vim.fn.nvim_get_current_line()"))
   end)
 
-  it('vim.fn is allowed in "fast" context by some functions #18306', function()
-    exec_lua([[
-      local timer = vim.loop.new_timer()
-      timer:start(0, 0, function()
-        timer:close()
-        assert(vim.in_fast_event())
-        vim.g.fnres = vim.fn.iconv('hello', 'utf-8', 'utf-8')
-      end)
-    ]])
-
-    helpers.poke_eventloop()
-    eq('hello', exec_lua[[return vim.g.fnres]])
-  end)
-
   it('vim.rpcrequest and vim.rpcnotify', function()
     exec_lua([[
       chan = vim.fn.jobstart({'cat'}, {rpc=true})
@@ -1396,12 +1381,10 @@ describe('lua stdlib', function()
     ]]
     eq('', funcs.luaeval "vim.bo.filetype")
     eq(true, funcs.luaeval "vim.bo[BUF].modifiable")
-    matches("unknown option 'nosuchopt'$",
+    matches("Invalid option name: 'nosuchopt'$",
        pcall_err(exec_lua, 'return vim.bo.nosuchopt'))
     matches("Expected lua string$",
        pcall_err(exec_lua, 'return vim.bo[0][0].autoread'))
-    matches("Invalid buffer id: %-1$",
-       pcall_err(exec_lua, 'return vim.bo[-1].filetype'))
   end)
 
   it('vim.wo', function()
@@ -1417,24 +1400,15 @@ describe('lua stdlib', function()
     eq(0, funcs.luaeval "vim.wo.cole")
     eq(0, funcs.luaeval "vim.wo[0].cole")
     eq(0, funcs.luaeval "vim.wo[1001].cole")
-    matches("unknown option 'notanopt'$",
+    matches("Invalid option name: 'notanopt'$",
        pcall_err(exec_lua, 'return vim.wo.notanopt'))
     matches("Expected lua string$",
        pcall_err(exec_lua, 'return vim.wo[0][0].list'))
-    matches("Invalid window id: %-1$",
-       pcall_err(exec_lua, 'return vim.wo[-1].list'))
     eq(2, funcs.luaeval "vim.wo[1000].cole")
     exec_lua [[
     vim.wo[1000].cole = 0
     ]]
     eq(0, funcs.luaeval "vim.wo[1000].cole")
-
-    -- Can handle global-local values
-    exec_lua [[vim.o.scrolloff = 100]]
-    exec_lua [[vim.wo.scrolloff = 200]]
-    eq(200, funcs.luaeval "vim.wo.scrolloff")
-    exec_lua [[vim.wo.scrolloff = -1]]
-    eq(100, funcs.luaeval "vim.wo.scrolloff")
   end)
 
   describe('vim.opt', function()
@@ -2148,13 +2122,6 @@ describe('lua stdlib', function()
     ]]
     eq('2', funcs.luaeval "BUF")
     eq(2, funcs.luaeval "#vim.api.nvim_list_bufs()")
-
-    -- vim.cmd can be indexed with a command name
-    exec_lua [[
-      vim.cmd.let 'g:var = 2'
-    ]]
-
-    eq(2, funcs.luaeval "vim.g.var")
   end)
 
   it('vim.regex', function()
@@ -2286,22 +2253,6 @@ describe('lua stdlib', function()
       insert("hello")
 
       eq('iworld<ESC>', exec_lua[[return table.concat(keys, '')]])
-    end)
-
-    it('can call vim.fn functions on Ctrl-C #17273', function()
-      exec_lua([[
-        _G.ctrl_c_cmdtype = ''
-
-        vim.on_key(function(c)
-          if c == '\3' then
-            _G.ctrl_c_cmdtype = vim.fn.getcmdtype()
-          end
-        end)
-      ]])
-      feed('/')
-      poke_eventloop()  -- This is needed because Ctrl-C flushes input
-      feed('<C-C>')
-      eq('/', exec_lua([[return _G.ctrl_c_cmdtype]]))
     end)
   end)
 
@@ -2500,41 +2451,6 @@ describe('lua stdlib', function()
 
       eq(false, pcall_result)
     end)
-
-    describe('returns -2 when interrupted', function()
-      before_each(function()
-        local channel = meths.get_api_info()[1]
-        meths.set_var('channel', channel)
-      end)
-
-      it('without callback', function()
-        exec_lua([[
-          function _G.Wait()
-            vim.rpcnotify(vim.g.channel, 'ready')
-            local _, interrupted = vim.wait(4000)
-            vim.rpcnotify(vim.g.channel, 'wait', interrupted)
-          end
-        ]])
-        feed(':lua _G.Wait()<CR>')
-        eq({'notification', 'ready', {}}, next_msg(500))
-        feed('<C-C>')
-        eq({'notification', 'wait', {-2}}, next_msg(500))
-      end)
-
-      it('with callback', function()
-        exec_lua([[
-          function _G.Wait()
-            vim.rpcnotify(vim.g.channel, 'ready')
-            local _, interrupted = vim.wait(4000, function() end)
-            vim.rpcnotify(vim.g.channel, 'wait', interrupted)
-          end
-        ]])
-        feed(':lua _G.Wait()<CR>')
-        eq({'notification', 'ready', {}}, next_msg(500))
-        feed('<C-C>')
-        eq({'notification', 'wait', {-2}}, next_msg(500))
-      end)
-    end)
   end)
 
   it('vim.notify_once', function()
@@ -2721,57 +2637,6 @@ describe('lua stdlib', function()
       ]]
     end)
   end)
-
-  describe('vim.iconv', function()
-    it('can convert strings', function()
-      eq('hello', exec_lua[[
-        return vim.iconv('hello', 'latin1', 'utf-8')
-      ]])
-    end)
-
-    it('can validate arguments', function()
-      eq({false, 'Expected at least 3 arguments'}, exec_lua[[
-        return {pcall(vim.iconv, 'hello')}
-      ]])
-
-      eq({false, 'bad argument #3 to \'?\' (expected string)'}, exec_lua[[
-        return {pcall(vim.iconv, 'hello', 'utf-8', true)}
-      ]])
-    end)
-
-    it('can handle bad encodings', function()
-      eq(NIL, exec_lua[[
-        return vim.iconv('hello', 'foo', 'bar')
-      ]])
-    end)
-
-    it('can handle strings with NUL bytes', function()
-      eq(7, exec_lua[[
-        local a = string.char(97, 98, 99, 0, 100, 101, 102) -- abc\0def
-        return string.len(vim.iconv(a, 'latin1', 'utf-8'))
-      ]])
-    end)
-
-  end)
-
-  describe("vim.defaulttable", function()
-    it("creates nested table by default", function()
-      eq({ b = {c = 1 } }, exec_lua[[
-        local a = vim.defaulttable()
-        a.b.c = 1
-        return a
-      ]])
-    end)
-
-    it("allows to create default objects", function()
-      eq({ b = 1 }, exec_lua[[
-        local a = vim.defaulttable(function() return 0 end)
-        a.b = a.b + 1
-        return a
-      ]])
-    end)
-  end)
-
 end)
 
 describe('lua: builtin modules', function()
@@ -2798,7 +2663,9 @@ describe('lua: builtin modules', function()
 
   it('does not work when disabled without runtime', function()
     clear{args={'--luamod-dev'}, env={VIMRUNTIME='fixtures/a'}}
-    expect_exit(exec_lua, [[return vim.tbl_count {x=1,y=2}]])
+    -- error checking could be better here. just check that --luamod-dev
+    -- does anything at all by breaking with missing runtime..
+    eq(nil, exec_lua[[return vim.tbl_count {x=1,y=2}]])
   end)
 end)
 
@@ -2843,12 +2710,12 @@ describe('vim.keymap', function()
 
   it('can make an expr mapping', function()
     exec_lua [[
-      vim.keymap.set('n', 'aa', function() return '<Insert>π<C-V><M-π>foo<lt><Esc>' end, {expr = true})
+      vim.keymap.set('n', 'aa', function() return ':lua SomeValue = 99<cr>' end, {expr = true})
     ]]
 
     feed('aa')
 
-    eq({'π<M-π>foo<'}, meths.buf_get_lines(0, 0, -1, false))
+    eq(99, exec_lua[[return SomeValue]])
   end)
 
   it('can overwrite a mapping', function()

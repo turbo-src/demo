@@ -18,7 +18,6 @@ local run = helpers.run
 local pcall_err = helpers.pcall_err
 local tbl_contains = global_helpers.tbl_contains
 local curbuf, curwin, curtab = helpers.curbuf, helpers.curwin, helpers.curtab
-local NIL = helpers.NIL
 
 describe('float window', function()
   before_each(function()
@@ -419,15 +418,6 @@ describe('float window', function()
       call sort(winids)
     ]])
     eq(winids, eval('winids'))
-  end)
-
-  it("no segfault when setting minimal style after clearing local 'fillchars' #19510", function()
-    local float_opts = {relative = 'editor', row = 1, col = 1, width = 1, height = 1}
-    local float_win = meths.open_win(0, true, float_opts)
-    meths.win_set_option(float_win, 'fillchars', NIL)
-    float_opts.style = 'minimal'
-    meths.win_set_config(float_win, float_opts)
-    assert_alive()
   end)
 
   describe('with only one tabpage,', function()
@@ -3670,10 +3660,10 @@ describe('float window', function()
         screen:expect{grid=[[
           ## grid 1
             [2:----------------------------------------]|
-            [2:----------------------------------------]|
-            [2:----------------------------------------]|
-            [2:----------------------------------------]|
-            [2:----------------------------------------]|
+            {5:[No Name]                               }|
+            [5:----------------------------------------]|
+            [5:----------------------------------------]|
+            [5:----------------------------------------]|
             {5:[Preview]                               }|
             [3:----------------------------------------]|
           ## grid 2
@@ -3684,6 +3674,10 @@ describe('float window', function()
             {17:f}{1:oo                           }|
             {17:b}{1:ar                           }|
             {1:                              }|
+          ## grid 5
+            |1| {17:f}oo                                 |
+            |2| {17:b}ar                                 |
+            {0:~                                       }|
         ]], float_pos=expected_pos}
       else
         screen:expect([[
@@ -4459,7 +4453,7 @@ describe('float window', function()
           ## grid 4
             {1:y                   }|
             {2:~                   }|
-          ]], float_pos=expected_pos}
+        ]], float_pos=expected_pos}
         else
           screen:expect([[
             ^x                                       |
@@ -4497,7 +4491,7 @@ describe('float window', function()
           ## grid 4
             {1:^y                   }|
             {2:~                   }|
-          ]], float_pos=expected_pos}
+        ]], float_pos=expected_pos}
         else
           screen:expect([[
             x                                       |
@@ -4533,7 +4527,7 @@ describe('float window', function()
           ## grid 4
             {1:y                   }|
             {2:~                   }|
-          ]], float_pos=expected_pos}
+        ]], float_pos=expected_pos}
         else
           screen:expect([[
             ^x                                       |
@@ -4573,7 +4567,7 @@ describe('float window', function()
           ## grid 4
             {1:y                   }|
             {2:~                   }|
-          ]], float_pos=expected_pos}
+        ]], float_pos=expected_pos}
         else
           screen:expect([[
             ^x                                       |
@@ -4609,7 +4603,7 @@ describe('float window', function()
           ## grid 4
             {1:y                   }|
             {2:~                   }|
-          ]], float_pos=expected_pos}
+        ]], float_pos=expected_pos}
         else
           screen:expect([[
             ^x                                       |
@@ -4647,7 +4641,7 @@ describe('float window', function()
           ## grid 4
             {1:^y                   }|
             {2:~                   }|
-          ]], float_pos=expected_pos}
+        ]], float_pos=expected_pos}
         else
           screen:expect([[
             x                                       |
@@ -4683,7 +4677,7 @@ describe('float window', function()
           ## grid 4
             {1:y                   }|
             {2:~                   }|
-          ]], float_pos=expected_pos}
+        ]], float_pos=expected_pos}
         else
           screen:expect([[
             ^x                                       |
@@ -4721,7 +4715,7 @@ describe('float window', function()
           ## grid 4
             {1:^y                   }|
             {2:~                   }|
-          ]], float_pos=expected_pos}
+        ]], float_pos=expected_pos}
         else
           meths.input_mouse('left', 'press', '', 0, 2, 5)
           screen:expect([[
@@ -4758,7 +4752,7 @@ describe('float window', function()
           ## grid 4
             {1:y                   }|
             {2:~                   }|
-          ]], float_pos=expected_pos}
+        ]], float_pos=expected_pos}
         else
           meths.input_mouse('left', 'press', '', 0, 0, 0)
           screen:expect([[
@@ -4800,7 +4794,7 @@ describe('float window', function()
           ## grid 4
             {1:y                   }|
             {2:~                   }|
-          ]], float_pos=expected_pos}
+        ]], float_pos=expected_pos}
         else
           meths.input_mouse('left', 'press', '', 0, 2, 5)
           screen:expect([[
@@ -4837,7 +4831,7 @@ describe('float window', function()
           ## grid 4
             {1:y                   }|
             {2:~                   }|
-          ]], float_pos=expected_pos, unchanged=true}
+        ]], float_pos=expected_pos, unchanged=true}
         else
           meths.input_mouse('left', 'press', '', 0, 0, 0)
           screen:expect([[
@@ -4851,6 +4845,7 @@ describe('float window', function()
           ]])
         end
       end)
+
 
       it("j", function()
         feed("<c-w>ji") -- INSERT to trigger screen change
@@ -4876,7 +4871,7 @@ describe('float window', function()
           ## grid 4
             {1:y                   }|
             {2:~                   }|
-          ]], float_pos=expected_pos}
+        ]], float_pos=expected_pos}
         else
           screen:expect([[
             ^x                                       |
@@ -4912,7 +4907,7 @@ describe('float window', function()
           ## grid 4
             {1:^y                   }|
             {2:~                   }|
-          ]], float_pos=expected_pos}
+        ]], float_pos=expected_pos}
         else
           screen:expect([[
             x                                       |
@@ -4948,7 +4943,7 @@ describe('float window', function()
           ## grid 4
             {1:y                   }|
             {2:~                   }|
-          ]], float_pos=expected_pos}
+        ]], float_pos=expected_pos}
         else
           screen:expect([[
             ^x                                       |
@@ -4987,7 +4982,7 @@ describe('float window', function()
           ## grid 4
             {1:^y                   }|
             {2:~                   }|
-          ]], float_pos=expected_pos}
+        ]], float_pos=expected_pos}
         else
           screen:expect([[
             x                                       |
@@ -5175,7 +5170,7 @@ describe('float window', function()
           ## grid 4
             {1:^y                   }|
             {2:~                   }|
-          ]], float_pos=expected_pos}
+        ]], float_pos=expected_pos}
         else
           screen:expect([[
             x                                       |
@@ -5356,7 +5351,7 @@ describe('float window', function()
           ## grid 5
             ^x                                       |
             {0:~                                       }|
-          ]], float_pos=expected_pos}
+        ]], float_pos=expected_pos}
         else
           screen:expect([[
             ^x                                       |
@@ -5391,7 +5386,7 @@ describe('float window', function()
           ## grid 5
             x                                       |
             {0:~                                       }|
-          ]], float_pos=expected_pos}
+        ]], float_pos=expected_pos}
         else
           screen:expect([[
             x                                       |
@@ -5426,7 +5421,7 @@ describe('float window', function()
           ## grid 5
             x                                       |
             {0:~                                       }|
-          ]], float_pos=expected_pos}
+        ]], float_pos=expected_pos}
         else
           screen:expect([[
             x                                       |
@@ -5462,7 +5457,7 @@ describe('float window', function()
           ## grid 5
             ^x                                       |
             {0:~                                       }|
-          ]], float_pos=expected_pos}
+        ]], float_pos=expected_pos}
         else
           screen:expect([[
             ^x                                       |
@@ -5499,7 +5494,7 @@ describe('float window', function()
           ## grid 5
             ^y                                       |
             {0:~                                       }|
-          ]], float_pos=expected_pos}
+        ]], float_pos=expected_pos}
         else
           screen:expect([[
             ^y                                       |
@@ -5534,7 +5529,7 @@ describe('float window', function()
           ## grid 5
             y                                       |
             {0:~                                       }|
-          ]], float_pos=expected_pos}
+        ]], float_pos=expected_pos}
         else
           screen:expect([[
             y                                       |
@@ -5569,7 +5564,7 @@ describe('float window', function()
           ## grid 5
             y                                       |
             {0:~                                       }|
-          ]], float_pos=expected_pos}
+        ]], float_pos=expected_pos}
         else
           screen:expect([[
             y                                       |
@@ -5606,7 +5601,7 @@ describe('float window', function()
           ## grid 5
             ^                                        |
             {0:~                                       }|
-          ]], float_pos=expected_pos}
+        ]], float_pos=expected_pos}
         else
           screen:expect([[
             ^                                        |
@@ -5643,7 +5638,7 @@ describe('float window', function()
           ## grid 5
             ^                                        |
             {0:~                                       }|
-          ]], float_pos=expected_pos}
+        ]], float_pos=expected_pos}
         else
           screen:expect([[
             ^                                        |
@@ -5686,7 +5681,7 @@ describe('float window', function()
             {0:~                   }|
             {0:~                   }|
             {0:~                   }|
-          ]], float_pos=expected_pos}
+        ]], float_pos=expected_pos}
         else
           screen:expect([[
             ^x                   {5:│}x                  |
@@ -5729,17 +5724,17 @@ describe('float window', function()
             {0:~                   }|
             {0:~                   }|
             {0:~                   }|
-          ]], float_pos=expected_pos}
+        ]], float_pos=expected_pos}
         else
-          screen:expect([[
-            ^                    {5:│}x                  |
-            {0:~                   }{5:│}{0:~                  }|
-            {0:~    }{1:y                   }{0:               }|
-            {0:~    }{2:~                   }{0:               }|
-            {0:~                   }{5:│}{0:~                  }|
-            {4:[No Name]            }{5:[No Name] [+]      }|
-            :vnew                                   |
-          ]])
+        screen:expect([[
+          ^                    {5:│}x                  |
+          {0:~                   }{5:│}{0:~                  }|
+          {0:~    }{1:y                   }{0:               }|
+          {0:~    }{2:~                   }{0:               }|
+          {0:~                   }{5:│}{0:~                  }|
+          {4:[No Name]            }{5:[No Name] [+]      }|
+          :vnew                                   |
+        ]])
         end
       end)
 
@@ -5772,7 +5767,7 @@ describe('float window', function()
             {0:~                   }|
             {0:~                   }|
             {0:~                   }|
-          ]], float_pos=expected_pos}
+        ]], float_pos=expected_pos}
         else
           screen:expect([[
             ^                    {5:│}x                  |
@@ -5842,7 +5837,7 @@ describe('float window', function()
             [4] = {{id = 1001}, "NW", 1, 2, 5, true},
             [5] = {{id = 1002}, "NW", 1, 4, 8, true}
           }}
-        else
+         else
           screen:expect([[
             x                                       |
             {0:~                                       }|
@@ -5880,7 +5875,7 @@ describe('float window', function()
           ]], float_pos={
             [4] = {{id = 1001}, "NW", 1, 2, 5, true},
           }}
-        else
+         else
           screen:expect([[
             x                                       |
             {0:~                                       }|
@@ -5949,7 +5944,7 @@ describe('float window', function()
             {0:~                                       }|
           ## grid 3
                                                     |
-          ]]}
+        ]]}
         else
           screen:expect([[
             ^x                                       |
@@ -5989,7 +5984,7 @@ describe('float window', function()
           ## grid 4
             {1:y                   }|
             {2:~                   }|
-          ]], float_pos=expected_pos}
+        ]], float_pos=expected_pos}
         else
           screen:expect([[
             x                                       |
@@ -6026,7 +6021,7 @@ describe('float window', function()
           ## grid 4
             {1:^y                   }|
             {2:~                   }|
-          ]], float_pos=expected_pos}
+        ]], float_pos=expected_pos}
         else
           screen:expect([[
             x                                       |
@@ -6096,7 +6091,7 @@ describe('float window', function()
             {0:~                                       }|
             {0:~                                       }|
             {0:~                                       }|
-          ]]}
+        ]]}
         else
           screen:expect([[
             ^x                                       |
@@ -6133,7 +6128,7 @@ describe('float window', function()
           ## grid 5
             x                                       |
             {0:~                                       }|
-          ]], float_pos=expected_pos}
+        ]], float_pos=expected_pos}
         else
           screen:expect([[
             x                                       |
@@ -6170,7 +6165,7 @@ describe('float window', function()
           ## grid 5
             x                                       |
             {0:~                                       }|
-          ]], float_pos=expected_pos}
+        ]], float_pos=expected_pos}
         else
           screen:expect([[
             x                                       |
@@ -6204,7 +6199,7 @@ describe('float window', function()
           ## grid 4
             ^y                                       |
             {0:~                                       }|
-          ]]}
+        ]]}
         else
           screen:expect([[
             x                                       |
@@ -6240,7 +6235,7 @@ describe('float window', function()
           ## grid 4
             ^y                             |
             {0:~                             }|
-          ]], float_pos=expected_pos}
+        ]], float_pos=expected_pos}
         else
           eq("UI doesn't support external windows",
              pcall_err(meths.win_set_config, 0, {external=true, width=30, height=2}))
@@ -6266,78 +6261,6 @@ describe('float window', function()
           ## grid 4
             ^y                                       |
             {0:~                                       }|
-          ]])
-        end
-      end)
-
-      it('J (float with border)', function()
-        meths.win_set_config(win, {relative='editor', width=20, height=2, row=2, col=5, border='single'})
-        if multigrid then
-          screen:expect{grid=[[
-          ## grid 1
-            [2:----------------------------------------]|
-            [2:----------------------------------------]|
-            [2:----------------------------------------]|
-            [2:----------------------------------------]|
-            [2:----------------------------------------]|
-            [2:----------------------------------------]|
-            [3:----------------------------------------]|
-          ## grid 2
-            ^x                                       |
-            {0:~                                       }|
-            {0:~                                       }|
-            {0:~                                       }|
-            {0:~                                       }|
-            {0:~                                       }|
-          ## grid 3
-                                                    |
-          ## grid 4
-            {5:┌────────────────────┐}|
-            {5:│}{1:y                   }{5:│}|
-            {5:│}{2:~                   }{5:│}|
-            {5:└────────────────────┘}|
-          ]], float_pos=expected_pos}
-        else
-          screen:expect([[
-            ^x                                       |
-            {0:~                                       }|
-            {0:~    }{5:┌────────────────────┐}{0:             }|
-            {0:~    }{5:│}{1:y                   }{5:│}{0:             }|
-            {0:~    }{5:│}{2:~                   }{5:│}{0:             }|
-            {0:~    }{5:└────────────────────┘}{0:             }|
-                                                    |
-          ]])
-        end
-
-        feed("<c-w>w<c-w>J")
-        if multigrid then
-          screen:expect{grid=[[
-          ## grid 1
-            [2:----------------------------------------]|
-            [2:----------------------------------------]|
-            {5:[No Name] [+]                           }|
-            [4:----------------------------------------]|
-            [4:----------------------------------------]|
-            {4:[No Name] [+]                           }|
-            [3:----------------------------------------]|
-          ## grid 2
-            x                                       |
-            {0:~                                       }|
-          ## grid 3
-                                                    |
-          ## grid 4
-            ^y                                       |
-            {0:~                                       }|
-          ]]}
-        else
-          screen:expect([[
-            x                                       |
-            {0:~                                       }|
-            {5:[No Name] [+]                           }|
-            ^y                                       |
-            {0:~                                       }|
-            {4:[No Name] [+]                           }|
-                                                    |
           ]])
         end
       end)
@@ -6735,7 +6658,6 @@ describe('float window', function()
           [2] = {win = {id = 1000}, topline = 0, botline = 2, curline = 0, curcol = 0, linecount = 1};
           [5] = {win = {id = 1002}, topline = 0, botline = 3, curline = 0, curcol = 0, linecount = 3};
         }}
-
         meths.input_mouse('left', 'press', '', 5, 0, 0)
         screen:expect{grid=[[
         ## grid 1
@@ -6765,7 +6687,6 @@ describe('float window', function()
           [2] = {win = {id = 1000}, topline = 0, botline = 2, curline = 0, curcol = 0, linecount = 1};
           [5] = {win = {id = 1002}, topline = 0, botline = 3, curline = 0, curcol = 0, linecount = 3};
         }}
-
         meths.input_mouse('left', 'drag', '', 5, 1, 2)
         screen:expect{grid=[[
         ## grid 1
@@ -6865,7 +6786,6 @@ describe('float window', function()
           [2] = {win = {id = 1000}, topline = 0, botline = 2, curline = 0, curcol = 0, linecount = 1};
           [5] = {win = {id = 1002}, topline = 0, botline = 3, curline = 0, curcol = 0, linecount = 3};
         }}
-
         meths.input_mouse('left', 'press', '', 5, 1, 1)
         screen:expect{grid=[[
         ## grid 1
@@ -6897,7 +6817,6 @@ describe('float window', function()
           [2] = {win = {id = 1000}, topline = 0, botline = 2, curline = 0, curcol = 0, linecount = 1};
           [5] = {win = {id = 1002}, topline = 0, botline = 3, curline = 0, curcol = 0, linecount = 3};
         }}
-
         meths.input_mouse('left', 'drag', '', 5, 2, 3)
         screen:expect{grid=[[
         ## grid 1
@@ -6999,7 +6918,6 @@ describe('float window', function()
           [2] = {win = {id = 1000}, topline = 0, botline = 2, curline = 0, curcol = 0, linecount = 1};
           [5] = {win = {id = 1002}, topline = 0, botline = 3, curline = 0, curcol = 0, linecount = 3};
         }}
-
         meths.input_mouse('left', 'press', '', 5, 1, 0)
         screen:expect{grid=[[
         ## grid 1
@@ -7030,7 +6948,6 @@ describe('float window', function()
           [2] = {win = {id = 1000}, topline = 0, botline = 2, curline = 0, curcol = 0, linecount = 1};
           [5] = {win = {id = 1002}, topline = 0, botline = 3, curline = 0, curcol = 0, linecount = 3};
         }}
-
         meths.input_mouse('left', 'drag', '', 5, 2, 2)
         screen:expect{grid=[[
         ## grid 1
@@ -7093,123 +7010,6 @@ describe('float window', function()
           {0:~                                       }|
           {3:-- VISUAL --}                            |
         ]]}
-      end
-    end)
-
-    it('left drag changes visual selection if float window is turned into a split', function()
-      local buf = meths.create_buf(false,false)
-      meths.buf_set_lines(buf, 0, -1, true, {'foo', 'bar', 'baz'})
-      meths.open_win(buf, true, {relative='editor', width=20, height=3, row=2, col=5})
-      command('wincmd L')
-      if multigrid then
-        screen:expect([[
-        ## grid 1
-          [2:-------------------]{5:│}[5:--------------------]|
-          [2:-------------------]{5:│}[5:--------------------]|
-          [2:-------------------]{5:│}[5:--------------------]|
-          [2:-------------------]{5:│}[5:--------------------]|
-          [2:-------------------]{5:│}[5:--------------------]|
-          {5:[No Name]           }{4:[No Name] [+]       }|
-          [3:----------------------------------------]|
-        ## grid 2
-                             |
-          {0:~                  }|
-          {0:~                  }|
-          {0:~                  }|
-          {0:~                  }|
-        ## grid 3
-                                                  |
-        ## grid 5
-          ^foo                 |
-          bar                 |
-          baz                 |
-          {0:~                   }|
-          {0:~                   }|
-        ]])
-
-        meths.input_mouse('left', 'press', '', 5, 2, 2)
-        screen:expect([[
-        ## grid 1
-          [2:-------------------]{5:│}[5:--------------------]|
-          [2:-------------------]{5:│}[5:--------------------]|
-          [2:-------------------]{5:│}[5:--------------------]|
-          [2:-------------------]{5:│}[5:--------------------]|
-          [2:-------------------]{5:│}[5:--------------------]|
-          {5:[No Name]           }{4:[No Name] [+]       }|
-          [3:----------------------------------------]|
-        ## grid 2
-                             |
-          {0:~                  }|
-          {0:~                  }|
-          {0:~                  }|
-          {0:~                  }|
-        ## grid 3
-                                                  |
-        ## grid 5
-          foo                 |
-          bar                 |
-          ba^z                 |
-          {0:~                   }|
-          {0:~                   }|
-        ]])
-
-        meths.input_mouse('left', 'drag', '', 5, 1, 1)
-        screen:expect([[
-        ## grid 1
-          [2:-------------------]{5:│}[5:--------------------]|
-          [2:-------------------]{5:│}[5:--------------------]|
-          [2:-------------------]{5:│}[5:--------------------]|
-          [2:-------------------]{5:│}[5:--------------------]|
-          [2:-------------------]{5:│}[5:--------------------]|
-          {5:[No Name]           }{4:[No Name] [+]       }|
-          [3:----------------------------------------]|
-        ## grid 2
-                             |
-          {0:~                  }|
-          {0:~                  }|
-          {0:~                  }|
-          {0:~                  }|
-        ## grid 3
-          {3:-- VISUAL --}                            |
-        ## grid 5
-          foo                 |
-          b^a{27:r}                 |
-          {27:baz}                 |
-          {0:~                   }|
-          {0:~                   }|
-        ]])
-      else
-        screen:expect([[
-                             {5:│}^foo                 |
-          {0:~                  }{5:│}bar                 |
-          {0:~                  }{5:│}baz                 |
-          {0:~                  }{5:│}{0:~                   }|
-          {0:~                  }{5:│}{0:~                   }|
-          {5:[No Name]           }{4:[No Name] [+]       }|
-                                                  |
-        ]])
-
-        meths.input_mouse('left', 'press', '', 0, 2, 22)
-        screen:expect([[
-                             {5:│}foo                 |
-          {0:~                  }{5:│}bar                 |
-          {0:~                  }{5:│}ba^z                 |
-          {0:~                  }{5:│}{0:~                   }|
-          {0:~                  }{5:│}{0:~                   }|
-          {5:[No Name]           }{4:[No Name] [+]       }|
-                                                  |
-        ]])
-
-        meths.input_mouse('left', 'drag', '', 0, 1, 21)
-        screen:expect([[
-                             {5:│}foo                 |
-          {0:~                  }{5:│}b^a{27:r}                 |
-          {0:~                  }{5:│}{27:baz}                 |
-          {0:~                  }{5:│}{0:~                   }|
-          {0:~                  }{5:│}{0:~                   }|
-          {5:[No Name]           }{4:[No Name] [+]       }|
-          {3:-- VISUAL --}                            |
-        ]])
       end
     end)
 
@@ -8096,53 +7896,6 @@ describe('float window', function()
           {0:~    }{2:~              }{0:                    }|
           {0:~                                       }|
           {0:~                                       }|
-                                                  |
-        ]]}
-      end
-
-      -- resize and add a border
-      meths.win_set_config(win1, {relative='editor', width=15, height=4, row=0, col=4, border = 'single'})
-
-      if multigrid then
-        screen:expect{grid=[[
-        ## grid 1
-          [2:----------------------------------------]|
-          [2:----------------------------------------]|
-          [2:----------------------------------------]|
-          [2:----------------------------------------]|
-          [2:----------------------------------------]|
-          [2:----------------------------------------]|
-          [3:----------------------------------------]|
-        ## grid 2
-          ^                                        |
-          {0:~                                       }|
-          {0:~                                       }|
-          {0:~                                       }|
-          {0:~                                       }|
-          {0:~                                       }|
-        ## grid 3
-                                                  |
-        ## grid 4
-          {5:┌───────────────┐}|
-          {5:│}{3:floaty bar     }{5:│}|
-          {5:│}{1:               }{5:│}|
-          {5:│}{2:~              }{5:│}|
-          {5:│}{2:~              }{5:│}|
-          {5:└───────────────┘}|
-        ]], float_pos={
-          [4] = {{id = 1001}, "NW", 1, 0, 4, true, 50};
-        }, win_viewport={
-          [2] = {win = {id = 1000}, topline = 0, botline = 2, curline = 0, curcol = 0, linecount = 1};
-          [4] = {win = {id = 1001}, topline = 0, botline = 2, curline = 0, curcol = 0, linecount = 1};
-        }}
-      else
-        screen:expect{grid=[[
-          ^    {5:┌───────────────┐}                   |
-          {0:~   }{5:│}{3:floaty bar     }{5:│}{0:                   }|
-          {0:~   }{5:│}{1:               }{5:│}{0:                   }|
-          {0:~   }{5:│}{2:~              }{5:│}{0:                   }|
-          {0:~   }{5:│}{2:~              }{5:│}{0:                   }|
-          {0:~   }{5:└───────────────┘}{0:                   }|
                                                   |
         ]]}
       end

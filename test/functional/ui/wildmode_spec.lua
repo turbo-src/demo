@@ -7,7 +7,7 @@ local meths = helpers.meths
 local eq = helpers.eq
 local eval = helpers.eval
 local retry = helpers.retry
-local testprg = helpers.testprg
+local nvim_dir = helpers.nvim_dir
 
 describe("'wildmenu'", function()
   local screen
@@ -114,7 +114,7 @@ describe("'wildmenu'", function()
   it('is preserved during :terminal activity', function()
     command('set wildmenu wildmode=full')
     command('set scrollback=4')
-    feed((':terminal "%s" REP 5000 !terminal_output!<cr>'):format(testprg('shell-test')))
+    feed([[:terminal "]]..nvim_dir..[[/shell-test" REP 5000 !terminal_output!<cr>]])
     feed('G')  -- Follow :terminal output.
     feed([[:sign <Tab>]])   -- Invoke wildmenu.
     -- NB: in earlier versions terminal output was redrawn during cmdline mode.
@@ -461,20 +461,20 @@ end)
 describe('command line completion', function()
   local screen
   before_each(function()
-    clear()
     screen = Screen.new(40, 5)
     screen:set_default_attr_ids({
      [1] = {bold = true, foreground = Screen.colors.Blue1},
      [2] = {foreground = Screen.colors.Grey0, background = Screen.colors.Yellow},
      [3] = {bold = true, reverse = true},
     })
-    screen:attach()
   end)
   after_each(function()
     os.remove('Xtest-functional-viml-compl-dir')
   end)
 
   it('lists directories with empty PATH', function()
+    clear()
+    screen:attach()
     local tmp = funcs.tempname()
     command('e '.. tmp)
     command('cd %:h')
@@ -491,6 +491,8 @@ describe('command line completion', function()
   end)
 
   it('completes env var names #9681', function()
+    clear()
+    screen:attach()
     command('let $XTEST_1 = "foo" | let $XTEST_2 = "bar"')
     command('set wildmenu wildmode=full')
     feed(':!echo $XTEST_<tab>')
@@ -517,58 +519,6 @@ describe('command line completion', function()
       {1:~                                       }|
       {2:XTEST_1AaあB}{3:  XTEST_2                   }|
       :!echo $XTEST_1AaあB^                    |
-    ]])
-  end)
-
-  it('does not leak memory with <S-Tab> with wildmenu and only one match #19874', function()
-    meths.set_option('wildmenu', true)
-    meths.set_option('wildmode', 'full')
-    meths.set_option('wildoptions', 'pum')
-
-    feed(':sign unpla<S-Tab>')
-    screen:expect([[
-                                              |
-      {1:~                                       }|
-      {1:~                                       }|
-      {1:~                                       }|
-      :sign unplace^                           |
-    ]])
-
-    feed('<Space>buff<Tab>')
-    screen:expect([[
-                                              |
-      {1:~                                       }|
-      {1:~                                       }|
-      {1:~                                       }|
-      :sign unplace buffer=^                   |
-    ]])
-  end)
-
-  it('does not show matches with <S-Tab> without wildmenu with wildmode=full', function()
-    meths.set_option('wildmenu', false)
-    meths.set_option('wildmode', 'full')
-
-    feed(':sign <S-Tab>')
-    screen:expect([[
-                                              |
-      {1:~                                       }|
-      {1:~                                       }|
-      {1:~                                       }|
-      :sign unplace^                           |
-    ]])
-  end)
-
-  it('shows matches with <S-Tab> without wildmenu with wildmode=list', function()
-    meths.set_option('wildmenu', false)
-    meths.set_option('wildmode', 'list')
-
-    feed(':sign <S-Tab>')
-    screen:expect([[
-      {3:                                        }|
-      :sign define                            |
-      define    list      undefine            |
-      jump      place     unplace             |
-      :sign unplace^                           |
     ]])
   end)
 end)

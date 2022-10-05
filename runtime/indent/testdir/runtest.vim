@@ -11,7 +11,6 @@ syn on
 set nowrapscan
 set report=9999
 set modeline
-set debug=throw
 
 au! SwapExists * call HandleSwapExists()
 func HandleSwapExists()
@@ -85,12 +84,7 @@ for fname in glob('testdir/*.in', 1, 1)
 
 	exe start + 1
 	if pattern == ''
-	  try
-	    exe 'normal =' . (end - 1) . 'G'
-	  catch
-	    call append(indent_at, 'ERROR: ' . v:exception)
-	    let failed = 1
-	  endtry
+	  exe 'normal =' . (end - 1) . 'G'
 	else
 	  let lnum = search(pattern)
 	  if lnum <= 0
@@ -105,12 +99,7 @@ for fname in glob('testdir/*.in', 1, 1)
 	  else
 	    exe lnum - 1
 	  endif
-	  try
-	    normal ==
-	  catch
-	    call append(indent_at, 'ERROR: ' . v:exception)
-	    let failed = 1
-	  endtry
+	  normal ==
 	endif
       endif
     endwhile

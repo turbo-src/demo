@@ -5,7 +5,6 @@ local iswin = helpers.iswin
 local ok = helpers.ok
 local matches = helpers.matches
 local pcall_err = helpers.pcall_err
-local mkdir = helpers.mkdir
 
 local function clear_serverlist()
   for _, server in pairs(funcs.serverlist()) do
@@ -14,19 +13,9 @@ local function clear_serverlist()
 end
 
 describe('server', function()
-  it('serverstart() stores sockets in $XDG_RUNTIME_DIR', function()
-    local dir = 'Xtest_xdg_run'
-    mkdir(dir)
-    clear({ env={ XDG_RUNTIME_DIR=dir } })
-    matches(dir, funcs.stdpath('run'))
-    if not iswin() then
-      matches(dir, funcs.serverstart())
-    end
-  end)
-
+  before_each(clear)
 
   it('serverstart(), serverstop() does not set $NVIM', function()
-    clear()
     local s = eval('serverstart()')
     assert(s ~= nil and s:len() > 0, "serverstart() returned empty")
     eq('', eval('$NVIM'))
@@ -41,11 +30,10 @@ describe('server', function()
     eq('', eval('$NVIM_LISTEN_ADDRESS'))
     local servers = funcs.serverlist()
     eq(1, #servers)
-    ok(string.len(servers[1]) > 4)  -- "~/.local/state/nvim…/…" or "\\.\pipe\…"
+    ok(string.len(servers[1]) > 4)  -- Like /tmp/nvim…/… or \\.\pipe\…
   end)
 
   it('sets v:servername at startup or if all servers were stopped', function()
-    clear()
     local initial_server = meths.get_vvar('servername')
     assert(initial_server ~= nil and initial_server:len() > 0,
            'v:servername was not initialized')
@@ -66,7 +54,7 @@ describe('server', function()
 
     -- v:servername and $NVIM take the next available server.
     local servername = (iswin() and [[\\.\pipe\Xtest-functional-server-pipe]]
-                                or './Xtest-functional-server-socket')
+                                or 'Xtest-functional-server-socket')
     funcs.serverstart(servername)
     eq(servername, meths.get_vvar('servername'))
     -- Not set in the current process, only in children.
@@ -74,13 +62,11 @@ describe('server', function()
   end)
 
   it('serverstop() returns false for invalid input', function()
-    clear()
     eq(0, eval("serverstop('')"))
     eq(0, eval("serverstop('bogus-socket-name')"))
   end)
 
-  it('parses endpoints', function()
-    clear()
+  it('parses endpoints correctly', function()
     clear_serverlist()
     eq({}, funcs.serverlist())
 
@@ -115,24 +101,19 @@ describe('server', function()
     eq(expected, funcs.serverlist())
     clear_serverlist()
 
-    -- Address without slashes is a "name" which is appended to a generated path. #8519
-    matches([[.*[/\\]xtest1%.2%.3%.4[^/\\]*]], funcs.serverstart('xtest1.2.3.4'))
-    clear_serverlist()
-
     eq('Vim:Failed to start server: invalid argument',
       pcall_err(funcs.serverstart, '127.0.0.1:65536'))  -- invalid port
     eq({}, funcs.serverlist())
   end)
 
   it('serverlist() returns the list of servers', function()
-    clear()
     -- There should already be at least one server.
     local n = eval('len(serverlist())')
 
     -- Add some servers.
     local servs = (iswin()
       and { [[\\.\pipe\Xtest-pipe0934]], [[\\.\pipe\Xtest-pipe4324]] }
-      or  { [[./Xtest-pipe0934]], [[./Xtest-pipe4324]] })
+      or  { [[Xtest-pipe0934]], [[Xtest-pipe4324]] })
     for _, s in ipairs(servs) do
       eq(s, eval("serverstart('"..s.."')"))
     end
@@ -165,13 +146,9 @@ describe('startup --listen', function()
 
   it('sets v:servername, overrides $NVIM_LISTEN_ADDRESS', function()
     local addr = (iswin() and [[\\.\pipe\Xtest-listen-pipe]]
-                          or './Xtest-listen-pipe')
-    clear({ env={ NVIM_LISTEN_ADDRESS='./Xtest-env-pipe' },
+                          or 'Xtest-listen-pipe')
+    clear({ env={ NVIM_LISTEN_ADDRESS='Xtest-env-pipe' },
             args={ '--listen', addr } })
     eq(addr, meths.get_vvar('servername'))
-
-    -- Address without slashes is a "name" which is appended to a generated path. #8519
-    clear({ args={ '--listen', 'test-name' } })
-    matches([[.*[/\\]test%-name[^/\\]*]], meths.get_vvar('servername'))
   end)
 end)

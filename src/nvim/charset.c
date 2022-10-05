@@ -126,7 +126,7 @@ int buf_init_chartab(buf_T *buf, int global)
   }
 
   // Init word char flags all to false
-  CLEAR_FIELD(buf->b_chartab);
+  memset(buf->b_chartab, 0, (size_t)32);
 
   // In lisp mode the '-' character is included in keywords.
   if (buf->b_p_lisp) {
@@ -140,16 +140,16 @@ int buf_init_chartab(buf_T *buf, int global)
     const char_u *p;
     if (i == 0) {
       // first round: 'isident'
-      p = (char_u *)p_isi;
+      p = p_isi;
     } else if (i == 1) {
       // second round: 'isprint'
-      p = (char_u *)p_isp;
+      p = p_isp;
     } else if (i == 2) {
       // third round: 'isfname'
-      p = (char_u *)p_isf;
+      p = p_isf;
     } else {  // i == 3
       // fourth round: 'iskeyword'
-      p = (char_u *)buf->b_p_isk;
+      p = buf->b_p_isk;
     }
 
     while (*p) {
@@ -162,7 +162,7 @@ int buf_init_chartab(buf_T *buf, int global)
       }
 
       if (ascii_isdigit(*p)) {
-        c = getdigits_int((char **)&p, true, 0);
+        c = getdigits_int((char_u **)&p, true, 0);
       } else {
         c = mb_ptr2char_adv(&p);
       }
@@ -172,7 +172,7 @@ int buf_init_chartab(buf_T *buf, int global)
         p++;
 
         if (ascii_isdigit(*p)) {
-          c2 = getdigits_int((char **)&p, true, 0);
+          c2 = getdigits_int((char_u **)&p, true, 0);
         } else {
           c2 = mb_ptr2char_adv(&p);
         }
@@ -246,7 +246,7 @@ int buf_init_chartab(buf_T *buf, int global)
       }
 
       c = *p;
-      p = (char_u *)skip_to_option_part((char *)p);
+      p = skip_to_option_part(p);
 
       if ((c == ',') && (*p == NUL)) {
         // Trailing comma is not allowed.
@@ -265,19 +265,19 @@ int buf_init_chartab(buf_T *buf, int global)
 ///
 /// @param buf
 /// @param bufsize
-void trans_characters(char *buf, int bufsize)
+void trans_characters(char_u *buf, int bufsize)
 {
   char_u *trs;                 // translated character
-  int len = (int)strlen(buf);  // length of string needing translation
+  int len = (int)STRLEN(buf);  // length of string needing translation
   int room = bufsize - len;    // room in buffer after string
 
   while (*buf != 0) {
     int trs_len;      // length of trs[]
     // Assume a multi-byte character doesn't need translation.
-    if ((trs_len = utfc_ptr2len(buf)) > 1) {
+    if ((trs_len = utfc_ptr2len((char *)buf)) > 1) {
       len -= trs_len;
     } else {
-      trs = transchar_byte((uint8_t)(*buf));
+      trs = transchar_byte(*buf);
       trs_len = (int)STRLEN(trs);
 
       if (trs_len > 1) {
@@ -313,7 +313,7 @@ size_t transstr_len(const char *const s, bool untab)
     const size_t l = (size_t)utfc_ptr2len(p);
     if (l > 1) {
       int pcc[MAX_MCO + 1];
-      pcc[0] = utfc_ptr2char(p, &pcc[1]);
+      pcc[0] = utfc_ptr2char((const char_u *)p, &pcc[1]);
 
       if (vim_isprintc(pcc[0])) {
         len += l;
@@ -359,7 +359,7 @@ size_t transstr_buf(const char *const s, char *const buf, const size_t len, bool
         break;  // Exceeded `buf` size.
       }
       int pcc[MAX_MCO + 1];
-      pcc[0] = utfc_ptr2char(p, &pcc[1]);
+      pcc[0] = utfc_ptr2char((const char_u *)p, &pcc[1]);
 
       if (vim_isprintc(pcc[0])) {
         memmove(buf_p, p, l);
@@ -687,12 +687,11 @@ int char2cells(int c)
 /// @param p
 ///
 /// @return number of display cells.
-int ptr2cells(const char *p_in)
+int ptr2cells(const char_u *p)
 {
-  uint8_t *p = (uint8_t *)p_in;
   // For UTF-8 we need to look at more bytes if the first byte is >= 0x80.
   if (*p >= 0x80) {
-    return utf_ptr2cells(p_in);
+    return utf_ptr2cells((char *)p);
   }
 
   // For DBCS we can tell the cell count from the first byte.
@@ -707,7 +706,7 @@ int ptr2cells(const char *p_in)
 /// @param s
 ///
 /// @return number of character cells.
-int vim_strsize(char *s)
+int vim_strsize(char_u *s)
 {
   return vim_strnsize(s, MAXCOL);
 }
@@ -721,12 +720,12 @@ int vim_strsize(char *s)
 /// @param len
 ///
 /// @return Number of character cells.
-int vim_strnsize(char *s, int len)
+int vim_strnsize(char_u *s, int len)
 {
   assert(s != NULL);
   int size = 0;
   while (*s != NUL && --len >= 0) {
-    int l = utfc_ptr2len(s);
+    int l = utfc_ptr2len((char *)s);
     size += ptr2cells(s);
     s += l;
     len -= l - 1;
@@ -789,7 +788,7 @@ bool vim_iswordc_buf(const int c, buf_T *const buf)
 bool vim_iswordp(const char_u *const p)
   FUNC_ATTR_PURE FUNC_ATTR_WARN_UNUSED_RESULT FUNC_ATTR_NONNULL_ALL
 {
-  return vim_iswordp_buf((char *)p, curbuf);
+  return vim_iswordp_buf(p, curbuf);
 }
 
 /// Just like vim_iswordc_buf() but uses a pointer to the (multi-byte)
@@ -799,13 +798,13 @@ bool vim_iswordp(const char_u *const p)
 /// @param  buf  buffer whose keywords to use
 ///
 /// @return true if "p" points to a keyword character.
-bool vim_iswordp_buf(const char *const p, buf_T *const buf)
+bool vim_iswordp_buf(const char_u *const p, buf_T *const buf)
   FUNC_ATTR_PURE FUNC_ATTR_WARN_UNUSED_RESULT FUNC_ATTR_NONNULL_ALL
 {
-  int c = (uint8_t)(*p);
+  int c = *p;
 
   if (MB_BYTE2LEN(c) > 1) {
-    c = utf_ptr2char(p);
+    c = utf_ptr2char((char *)p);
   }
   return vim_iswordc_buf(c, buf);
 }
@@ -829,8 +828,8 @@ bool vim_isfilec(int c)
 bool vim_isfilec_or_wc(int c)
   FUNC_ATTR_PURE FUNC_ATTR_WARN_UNUSED_RESULT
 {
-  char buf[2];
-  buf[0] = (char)c;
+  char_u buf[2];
+  buf[0] = (char_u)c;
   buf[1] = NUL;
   return vim_isfilec(c) || c == ']' || path_has_wildcard(buf);
 }
@@ -905,15 +904,15 @@ bool in_win_border(win_T *wp, colnr_T vcol)
 /// @param end
 void getvcol(win_T *wp, pos_T *pos, colnr_T *start, colnr_T *cursor, colnr_T *end)
 {
-  char *ptr;     // points to current char
-  char *posptr;  // points to char at pos->col
+  char_u *ptr;    // points to current char
+  char_u *posptr;  // points to char at pos->col
   int incr;
   int head;
   long *vts = wp->w_buffer->b_p_vts_array;
   int ts = (int)wp->w_buffer->b_p_ts;
 
   colnr_T vcol = 0;
-  char *line = ptr = ml_get_buf(wp->w_buffer, pos->lnum, false);  // start of the line
+  char_u *line = ptr = ml_get_buf(wp->w_buffer, pos->lnum, false);  // start of the line
 
   if (pos->col == MAXCOL) {
     // continue until the NUL
@@ -930,21 +929,17 @@ void getvcol(win_T *wp, pos_T *pos, colnr_T *start, colnr_T *cursor, colnr_T *en
     posptr -= utf_head_off(line, posptr);
   }
 
-  chartabsize_T cts;
-  init_chartabsize_arg(&cts, wp, pos->lnum, 0, line, line);
-
   // This function is used very often, do some speed optimizations.
   // When 'list', 'linebreak', 'showbreak' and 'breakindent' are not set
-  // and there are no virtual text use a simple loop.
+  // use a simple loop.
   // Also use this when 'list' is set but tabs take their normal size.
   if ((!wp->w_p_list || (wp->w_p_lcs_chars.tab1 != NUL))
       && !wp->w_p_lbr
       && *get_showbreak_value(wp) == NUL
-      && !wp->w_p_bri
-      && !cts.cts_has_virt_text) {
+      && !wp->w_p_bri) {
     for (;;) {
       head = 0;
-      int c = (uint8_t)(*ptr);
+      int c = *ptr;
 
       // make sure we don't go past the end of the line
       if (c == NUL) {
@@ -960,7 +955,7 @@ void getvcol(win_T *wp, pos_T *pos, colnr_T *start, colnr_T *cursor, colnr_T *en
         // For utf-8, if the byte is >= 0x80, need to look at
         // further bytes to find the cell width.
         if (c >= 0x80) {
-          incr = utf_ptr2cells(ptr);
+          incr = utf_ptr2cells((char *)ptr);
         } else {
           incr = g_chartab[c] & CT_CELL_MASK;
         }
@@ -970,7 +965,7 @@ void getvcol(win_T *wp, pos_T *pos, colnr_T *start, colnr_T *cursor, colnr_T *en
         // cells wide.
         if ((incr == 2)
             && wp->w_p_wrap
-            && (MB_BYTE2LEN((uint8_t)(*ptr)) > 1)
+            && (MB_BYTE2LEN(*ptr) > 1)
             && in_win_border(wp, vcol)) {
           incr++;
           head = 1;
@@ -988,29 +983,25 @@ void getvcol(win_T *wp, pos_T *pos, colnr_T *start, colnr_T *cursor, colnr_T *en
   } else {
     for (;;) {
       // A tab gets expanded, depending on the current column
-      // Other things also take up space.
       head = 0;
-      incr = win_lbr_chartabsize(&cts, &head);
+      incr = win_lbr_chartabsize(wp, line, ptr, vcol, &head);
 
       // make sure we don't go past the end of the line
-      if (*cts.cts_ptr == NUL) {
+      if (*ptr == NUL) {
         // NUL at end of line only takes one column
         incr = 1;
         break;
       }
 
-      if ((posptr != NULL) && (cts.cts_ptr >= posptr)) {
+      if ((posptr != NULL) && (ptr >= posptr)) {
         // character at pos->col
         break;
       }
 
-      cts.cts_vcol += incr;
-      MB_PTR_ADV(cts.cts_ptr);
+      vcol += incr;
+      MB_PTR_ADV(ptr);
     }
-    vcol = cts.cts_vcol;
-    ptr = cts.cts_ptr;
   }
-  clear_chartabsize_arg(&cts);
 
   if (start != NULL) {
     *start = vcol + head;
@@ -1021,8 +1012,6 @@ void getvcol(win_T *wp, pos_T *pos, colnr_T *start, colnr_T *cursor, colnr_T *en
   }
 
   if (cursor != NULL) {
-    // cursor is after inserted text
-    vcol += cts.cts_cur_text_width;
     if ((*ptr == TAB)
         && (State & MODE_NORMAL)
         && !wp->w_p_list
@@ -1076,10 +1065,10 @@ void getvvcol(win_T *wp, pos_T *pos, colnr_T *start, colnr_T *cursor, colnr_T *e
     colnr_T endadd = 0;
 
     // Cannot put the cursor on part of a wide character.
-    char *ptr = ml_get_buf(wp->w_buffer, pos->lnum, false);
+    char_u *ptr = ml_get_buf(wp->w_buffer, pos->lnum, false);
 
-    if (pos->col < (colnr_T)strlen(ptr)) {
-      int c = utf_ptr2char(ptr + pos->col);
+    if (pos->col < (colnr_T)STRLEN(ptr)) {
+      int c = utf_ptr2char((char *)ptr + pos->col);
       if ((c != TAB) && vim_isprintc(c)) {
         endadd = (colnr_T)(char2cells(c) - 1);
         if (coladd > endadd) {
@@ -1157,7 +1146,7 @@ char *skipwhite(const char *const p)
   FUNC_ATTR_PURE FUNC_ATTR_WARN_UNUSED_RESULT FUNC_ATTR_NONNULL_ALL
   FUNC_ATTR_NONNULL_RET
 {
-  return skipwhite_len(p, strlen(p));
+  return (char *)skipwhite_len((char_u *)p, STRLEN(p));
 }
 
 /// Like `skipwhite`, but skip up to `len` characters.
@@ -1168,14 +1157,14 @@ char *skipwhite(const char *const p)
 ///
 /// @return Pointer to character after the skipped whitespace, or the `len`-th
 ///         character in the string.
-char *skipwhite_len(const char *p, size_t len)
+char_u *skipwhite_len(const char_u *p, size_t len)
   FUNC_ATTR_PURE FUNC_ATTR_WARN_UNUSED_RESULT FUNC_ATTR_NONNULL_ALL
   FUNC_ATTR_NONNULL_RET
 {
   for (; len > 0 && ascii_iswhite(*p); len--) {
     p++;
   }
-  return (char *)p;
+  return (char_u *)p;
 }
 
 // getwhitecols: return the number of whitespace
@@ -1185,10 +1174,10 @@ intptr_t getwhitecols_curline(void)
   return getwhitecols(get_cursor_line_ptr());
 }
 
-intptr_t getwhitecols(const char *p)
+intptr_t getwhitecols(const char_u *p)
   FUNC_ATTR_PURE
 {
-  return skipwhite(p) - p;
+  return (char_u *)skipwhite((char *)p) - p;
 }
 
 /// Skip over digits
@@ -1232,10 +1221,10 @@ const char *skipbin(const char *q)
 ///
 /// @return Pointer to the character after the skipped digits and hex
 ///         characters.
-char *skiphex(char *q)
+char_u *skiphex(char_u *q)
   FUNC_ATTR_PURE
 {
-  char *p = q;
+  char_u *p = q;
   while (ascii_isxdigit(*p)) {
     // skip to next non-digit
     p++;
@@ -1248,10 +1237,10 @@ char *skiphex(char *q)
 /// @param q
 ///
 /// @return Pointer to the digit or (NUL after the string).
-char *skiptodigit(char *q)
+char_u *skiptodigit(char_u *q)
   FUNC_ATTR_PURE
 {
-  char *p = q;
+  char_u *p = q;
   while (*p != NUL && !ascii_isdigit(*p)) {
     // skip to next digit
     p++;
@@ -1282,10 +1271,10 @@ const char *skiptobin(const char *q)
 /// @param q
 ///
 /// @return Pointer to the hex character or (NUL after the string).
-char *skiptohex(char *q)
+char_u *skiptohex(char_u *q)
   FUNC_ATTR_PURE
 {
-  char *p = q;
+  char_u *p = q;
   while (*p != NUL && !ascii_isxdigit(*p)) {
     // skip to next digit
     p++;
@@ -1298,13 +1287,13 @@ char *skiptohex(char *q)
 /// @param[in]  p  Text to skip over.
 ///
 /// @return Pointer to the next whitespace or NUL character.
-char *skiptowhite(const char *p)
+char_u *skiptowhite(const char_u *p)
   FUNC_ATTR_NONNULL_ALL FUNC_ATTR_PURE
 {
   while (*p != ' ' && *p != '\t' && *p != NUL) {
     p++;
   }
-  return (char *)p;
+  return (char_u *)p;
 }
 
 /// skiptowhite_esc: Like skiptowhite(), but also skip escaped chars
@@ -1312,7 +1301,7 @@ char *skiptowhite(const char *p)
 /// @param p
 ///
 /// @return Pointer to the next whitespace character.
-char *skiptowhite_esc(char *p)
+char_u *skiptowhite_esc(char_u *p)
   FUNC_ATTR_PURE
 {
   while (*p != ' ' && *p != '\t' && *p != NUL) {
@@ -1329,24 +1318,24 @@ char *skiptowhite_esc(char *p)
 /// @param[in]  p  Text to skip over.
 ///
 /// @return Pointer to the next '\n' or NUL character.
-char *skip_to_newline(const char *const p)
+char_u *skip_to_newline(const char_u *const p)
   FUNC_ATTR_PURE FUNC_ATTR_WARN_UNUSED_RESULT FUNC_ATTR_NONNULL_ALL
   FUNC_ATTR_NONNULL_RET
 {
-  return xstrchrnul(p, NL);
+  return (char_u *)xstrchrnul((const char *)p, NL);
 }
 
 /// Gets a number from a string and skips over it, signalling overflow.
 ///
-/// @param[out]  pp  A pointer to a pointer to char.
+/// @param[out]  pp  A pointer to a pointer to char_u.
 ///                  It will be advanced past the read number.
 /// @param[out]  nr  Number read from the string.
 ///
 /// @return true on success, false on error/overflow
-bool try_getdigits(char **pp, intmax_t *nr)
+bool try_getdigits(char_u **pp, intmax_t *nr)
 {
   errno = 0;
-  *nr = strtoimax(*pp, pp, 10);
+  *nr = strtoimax((char *)(*pp), (char **)pp, 10);
   if (errno == ERANGE && (*nr == INTMAX_MIN || *nr == INTMAX_MAX)) {
     return false;
   }
@@ -1355,13 +1344,13 @@ bool try_getdigits(char **pp, intmax_t *nr)
 
 /// Gets a number from a string and skips over it.
 ///
-/// @param[out]  pp  Pointer to a pointer to char.
+/// @param[out]  pp  Pointer to a pointer to char_u.
 ///                  It will be advanced past the read number.
 /// @param strict    Abort on overflow.
 /// @param def       Default value, if parsing fails or overflow occurs.
 ///
 /// @return Number read from the string, or `def` on parse failure or overflow.
-intmax_t getdigits(char **pp, bool strict, intmax_t def)
+intmax_t getdigits(char_u **pp, bool strict, intmax_t def)
 {
   intmax_t number;
   int ok = try_getdigits(pp, &number);
@@ -1374,7 +1363,7 @@ intmax_t getdigits(char **pp, bool strict, intmax_t def)
 /// Gets an int number from a string.
 ///
 /// @see getdigits
-int getdigits_int(char **pp, bool strict, int def)
+int getdigits_int(char_u **pp, bool strict, int def)
 {
   intmax_t number = getdigits(pp, strict, def);
 #if SIZEOF_INTMAX_T > SIZEOF_INT
@@ -1390,7 +1379,7 @@ int getdigits_int(char **pp, bool strict, int def)
 /// Gets a long number from a string.
 ///
 /// @see getdigits
-long getdigits_long(char **pp, bool strict, long def)
+long getdigits_long(char_u **pp, bool strict, long def)
 {
   intmax_t number = getdigits(pp, strict, def);
 #if SIZEOF_INTMAX_T > SIZEOF_LONG
@@ -1403,29 +1392,13 @@ long getdigits_long(char **pp, bool strict, long def)
   return (long)number;
 }
 
-/// Gets a int32_t number from a string.
-///
-/// @see getdigits
-int32_t getdigits_int32(char **pp, bool strict, long def)
-{
-  intmax_t number = getdigits(pp, strict, def);
-#if SIZEOF_INTMAX_T > SIZEOF_INT32_T
-  if (strict) {
-    assert(number >= INT32_MIN && number <= INT32_MAX);
-  } else if (!(number >= INT32_MIN && number <= INT32_MAX)) {
-    return (int32_t)def;
-  }
-#endif
-  return (int32_t)number;
-}
-
 /// Check that "lbuf" is empty or only contains blanks.
 ///
 /// @param  lbuf  line buffer to check
-bool vim_isblankline(char *lbuf)
+bool vim_isblankline(char_u *lbuf)
   FUNC_ATTR_PURE
 {
-  char *p = skipwhite(lbuf);
+  char_u *p = (char_u *)skipwhite((char *)lbuf);
   return *p == NUL || *p == '\r' || *p == '\n';
 }
 
@@ -1463,14 +1436,14 @@ bool vim_isblankline(char *lbuf)
 /// @param strict If true, fail if the number has unexpected trailing
 ///               alphanumeric chars: *len is set to 0 and nothing else is
 ///               returned.
-void vim_str2nr(const char *const start, int *const prep, int *const len, const int what,
+void vim_str2nr(const char_u *const start, int *const prep, int *const len, const int what,
                 varnumber_T *const nptr, uvarnumber_T *const unptr, const int maxlen,
                 const bool strict)
   FUNC_ATTR_NONNULL_ARG(1)
 {
-  const char *ptr = start;
+  const char *ptr = (const char *)start;
 #define STRING_ENDED(ptr) \
-  (!(maxlen == 0 || (int)((ptr) - start) < maxlen))
+  (!(maxlen == 0 || (int)((ptr) - (const char *)start) < maxlen))
   int pre = 0;  // default is decimal
   const bool negative = (ptr[0] == '-');
   uvarnumber_T un = 0;
@@ -1522,7 +1495,7 @@ void vim_str2nr(const char *const start, int *const prep, int *const len, const 
   } else if ((what & (STR2NR_HEX | STR2NR_OCT | STR2NR_OOCT | STR2NR_BIN))
              && !STRING_ENDED(ptr + 1) && ptr[0] == '0' && ptr[1] != '8'
              && ptr[1] != '9') {
-    pre = (uint8_t)ptr[1];
+    pre = (char_u)ptr[1];
     // Detect hexadecimal: 0x or 0X followed by hex digit.
     if ((what & STR2NR_HEX)
         && !STRING_ENDED(ptr + 2)
@@ -1583,10 +1556,10 @@ void vim_str2nr(const char *const start, int *const prep, int *const len, const 
       } \
       const uvarnumber_T digit = (uvarnumber_T)(conv); \
       /* avoid ubsan error for overflow */ \
-      if (un < UVARNUMBER_MAX / (base) \
-          || (un == UVARNUMBER_MAX / (base) \
-              && ((base) != 10 || digit <= UVARNUMBER_MAX % 10))) { \
-        un = (base) * un + digit; \
+      if (un < UVARNUMBER_MAX / base \
+          || (un == UVARNUMBER_MAX / base \
+              && (base != 10 || digit <= UVARNUMBER_MAX % 10))) { \
+        un = base * un + digit; \
       } else { \
         un = UVARNUMBER_MAX; \
       } \
@@ -1610,7 +1583,7 @@ vim_str2nr_hex:
 vim_str2nr_proceed:
   // Check for an alphanumeric character immediately following, that is
   // most likely a typo.
-  if (strict && ptr - start != maxlen && ASCII_ISALNUM(*ptr)) {
+  if (strict && ptr - (const char *)start != maxlen && ASCII_ISALNUM(*ptr)) {
     return;
   }
 
@@ -1619,7 +1592,7 @@ vim_str2nr_proceed:
   }
 
   if (len != NULL) {
-    *len = (int)(ptr - start);
+    *len = (int)(ptr - (const char *)start);
   }
 
   if (nptr != NULL) {
@@ -1664,9 +1637,8 @@ int hex2nr(int c)
 }
 
 /// Convert two hex characters to a byte.
-///
-/// @return  -1 if one of the characters is not hex.
-int hexhex2nr(const char *p)
+/// Return -1 if one of the characters is not hex.
+int hexhex2nr(char_u *p)
   FUNC_ATTR_PURE
 {
   if (!ascii_isxdigit(p[0]) || !ascii_isxdigit(p[1])) {
@@ -1688,12 +1660,12 @@ int hexhex2nr(const char *p)
 /// characters.
 ///
 /// @param  str  file path string to check
-bool rem_backslash(const char *str)
+bool rem_backslash(const char_u *str)
   FUNC_ATTR_PURE FUNC_ATTR_WARN_UNUSED_RESULT FUNC_ATTR_NONNULL_ALL
 {
 #ifdef BACKSLASH_IN_FILENAME
   return str[0] == '\\'
-         && (uint8_t)str[1] < 0x80
+         && str[1] < 0x80
          && (str[1] == ' '
              || (str[1] != NUL
                  && str[1] != '*'
@@ -1708,7 +1680,7 @@ bool rem_backslash(const char *str)
 /// Halve the number of backslashes in a file name argument.
 ///
 /// @param p
-void backslash_halve(char *p)
+void backslash_halve(char_u *p)
 {
   for (; *p; p++) {
     if (rem_backslash(p)) {
@@ -1722,11 +1694,11 @@ void backslash_halve(char *p)
 /// @param p
 ///
 /// @return String with the number of backslashes halved.
-char *backslash_halve_save(const char *p)
+char_u *backslash_halve_save(const char_u *p)
   FUNC_ATTR_NONNULL_ALL FUNC_ATTR_NONNULL_RET
 {
   // TODO(philix): simplify and improve backslash_halve_save algorithm
-  char *res = xstrdup(p);
+  char_u *res = vim_strsave(p);
   backslash_halve(res);
   return res;
 }

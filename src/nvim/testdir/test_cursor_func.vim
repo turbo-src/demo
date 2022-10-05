@@ -22,7 +22,7 @@ func Test_move_cursor()
   call cursor(3, 0)
   call assert_equal([3, 1, 0, 1], getcurpos()[1:])
   " below last line goes to last line
-  eval [9, 1]->cursor()
+  call cursor(9, 1)
   call assert_equal([4, 1, 0, 1], getcurpos()[1:])
   " pass string arguments
   call cursor('3', '3')
@@ -99,7 +99,6 @@ func Test_screenpos()
     \ 'curscol': wincol + 9,
     \ 'endcol': wincol + 9}, screenpos(winid, 2, 22))
   close
-  call assert_equal({}, screenpos(999, 1, 1))
   bwipe!
 
   call assert_equal({'col': 1, 'row': 1, 'endcol': 1, 'curscol': 1}, screenpos(win_getid(), 1, 1))
@@ -371,28 +370,6 @@ func Test_setcursorcharpos()
   call assert_equal([4, 1], [line('.'), col('.')])
 
   %bw!
-endfunc
-
-" Test for virtcol2col()
-func Test_virtcol2col()
-  new
-  call setline(1, ["a\tb\tc"])
-  call assert_equal(1, virtcol2col(0, 1, 1))
-  call assert_equal(2, virtcol2col(0, 1, 2))
-  call assert_equal(2, virtcol2col(0, 1, 8))
-  call assert_equal(3, virtcol2col(0, 1, 9))
-  call assert_equal(4, virtcol2col(0, 1, 10))
-  call assert_equal(4, virtcol2col(0, 1, 16))
-  call assert_equal(5, virtcol2col(0, 1, 17))
-  call assert_equal(-1, virtcol2col(10, 1, 1))
-  call assert_equal(-1, virtcol2col(0, 10, 1))
-  call assert_equal(-1, virtcol2col(0, -1, 1))
-  call assert_equal(-1, virtcol2col(0, 1, -1))
-  call assert_equal(5, virtcol2col(0, 1, 20))
-  call assert_fails('echo virtcol2col("0", 1, 20)', 'E1210:')
-  call assert_fails('echo virtcol2col(0, "1", 20)', 'E1210:')
-  call assert_fails('echo virtcol2col(0, 1, "1")', 'E1210:')
-  bw!
 endfunc
 
 " vim: shiftwidth=2 sts=2 expandtab

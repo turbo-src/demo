@@ -29,12 +29,11 @@ describe('API: highlight',function()
     italic = true,
     reverse = true,
     underline = true,
+    underlineline = true,
     undercurl = true,
-    underdouble = true,
-    underdotted = true,
-    underdashed = true,
+    underdot = true,
+    underdash = true,
     strikethrough = true,
-    nocombine = true,
   }
 
   before_each(function()
@@ -56,7 +55,7 @@ describe('API: highlight',function()
     eq('Invalid highlight id: 30000', string.match(emsg, 'Invalid.*'))
 
     -- Test all highlight properties.
-    command('hi NewHighlight gui=underline,bold,undercurl,underdouble,underdotted,underdashed,italic,reverse,strikethrough,nocombine')
+    command('hi NewHighlight gui=underline,bold,underlineline,undercurl,underdot,underdash,italic,reverse,strikethrough')
     eq(expected_rgb2, nvim("get_hl_by_id", hl_id, true))
 
     -- Test nil argument.
@@ -134,13 +133,6 @@ describe('API: highlight',function()
     eq({ underline = true, standout = true, },
        meths.get_hl_by_name('cursorline', 0));
 
-    -- Test cterm & Normal values. #18024 (tail) & #18980
-    -- Ensure Normal, and groups that match Normal return their fg & bg cterm values
-    meths.set_hl(0, 'Normal', {ctermfg = 17, ctermbg = 213})
-    meths.set_hl(0, 'NotNormal', {ctermfg = 17, ctermbg = 213, nocombine = true})
-    -- Note colors are "cterm" values, not rgb-as-ints
-    eq({foreground = 17, background = 213}, nvim("get_hl_by_name", 'Normal', false))
-    eq({foreground = 17, background = 213, nocombine = true}, nvim("get_hl_by_name", 'NotNormal', false))
   end)
 
   it('nvim_get_hl_id_by_name', function()
@@ -206,16 +198,15 @@ describe("API: set highlight", function()
     reverse = true,
     undercurl = true,
     underline = true,
-    underdashed = true,
-    underdotted = true,
-    underdouble = true,
+    underdash = true,
+    underdot = true,
+    underlineline = true,
     strikethrough = true,
     cterm = {
       italic = true,
       reverse = true,
       undercurl = true,
       strikethrough = true,
-      nocombine = true,
     }
   }
   local highlight3_result_gui = {
@@ -226,9 +217,9 @@ describe("API: set highlight", function()
     reverse = true,
     undercurl = true,
     underline = true,
-    underdashed = true,
-    underdotted = true,
-    underdouble = true,
+    underdash = true,
+    underdot = true,
+    underlineline = true,
     strikethrough = true,
   }
   local highlight3_result_cterm = {
@@ -238,12 +229,11 @@ describe("API: set highlight", function()
     reverse = true,
     undercurl = true,
     strikethrough = true,
-    nocombine = true,
   }
 
   local function get_ns()
     local ns = meths.create_namespace('Test_set_hl')
-    meths.set_hl_ns(ns)
+    meths._set_hl_ns(ns)
     return ns
   end
 
@@ -293,23 +283,22 @@ describe("API: set highlight", function()
       exec_capture('highlight Test_hl'))
 
     meths.set_hl(0, 'Test_hl2', highlight3_config)
-    eq('Test_hl2       xxx cterm=undercurl,italic,reverse,strikethrough,nocombine ctermfg=8 ctermbg=15 gui=bold,underline,undercurl,underdouble,underdotted,underdashed,italic,reverse,strikethrough guifg=#ff0000 guibg=#0032aa',
+    eq('Test_hl2       xxx cterm=undercurl,italic,reverse,strikethrough ctermfg=8 ctermbg=15 gui=bold,underline,underlineline,undercurl,underdot,underdash,italic,reverse,strikethrough guifg=#ff0000 guibg=#0032aa',
       exec_capture('highlight Test_hl2'))
 
-    -- Colors are stored with the name they are defined, but
-    -- with canonical casing
+    -- Colors are stored exactly as they are defined.
     meths.set_hl(0, 'Test_hl3', { bg = 'reD', fg = 'bLue'})
-    eq('Test_hl3       xxx guifg=Blue guibg=Red',
+    eq('Test_hl3       xxx guifg=bLue guibg=reD',
       exec_capture('highlight Test_hl3'))
   end)
 
   it ("can modify a highlight in the global namespace", function()
     meths.set_hl(0, 'Test_hl3', { bg = 'red', fg = 'blue'})
-    eq('Test_hl3       xxx guifg=Blue guibg=Red',
+    eq('Test_hl3       xxx guifg=blue guibg=red',
       exec_capture('highlight Test_hl3'))
 
     meths.set_hl(0, 'Test_hl3', { bg = 'red' })
-    eq('Test_hl3       xxx guibg=Red',
+    eq('Test_hl3       xxx guibg=red',
       exec_capture('highlight Test_hl3'))
 
     meths.set_hl(0, 'Test_hl3', { ctermbg = 9, ctermfg = 12})
@@ -331,7 +320,7 @@ describe("API: set highlight", function()
       pcall_err(meths.set_hl, 0, 'Test_hl3', {ctermfg='bleu'}))
 
     meths.set_hl(0, 'Test_hl3', {fg='#FF00FF'})
-    eq('Test_hl3       xxx guifg=#ff00ff',
+    eq('Test_hl3       xxx guifg=#FF00FF',
       exec_capture('highlight Test_hl3'))
 
     eq("'#FF00FF' is not a valid color",
@@ -344,19 +333,8 @@ describe("API: set highlight", function()
     end
 
     meths.set_hl(0, 'Test_hl3', {fg='#FF00FF', blend=50})
-    eq('Test_hl3       xxx guifg=#ff00ff blend=50',
+    eq('Test_hl3       xxx guifg=#FF00FF blend=50',
       exec_capture('highlight Test_hl3'))
 
-  end)
-
-  it ("correctly sets 'Normal' internal properties", function()
-    -- Normal has some special handling internally. #18024
-    meths.set_hl(0, 'Normal', {fg='#000083', bg='#0000F3'})
-    eq({foreground = 131, background = 243}, nvim("get_hl_by_name", 'Normal', true))
-  end)
-
-  it('does not segfault on invalid group name #20009', function()
-    eq('Invalid highlight name: foo bar', pcall_err(meths.set_hl, 0, 'foo bar', {bold = true}))
-    assert_alive()
   end)
 end)

@@ -30,7 +30,7 @@ fun! s:SynSet()
     unlet b:current_syntax
   endif
 
-  0verbose let s = expand("<amatch>")
+  let s = expand("<amatch>")
   if s == "ON"
     " :set syntax=ON
     if &filetype == ""

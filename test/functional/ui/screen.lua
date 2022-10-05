@@ -383,7 +383,7 @@ function Screen:expect(expected, attr_ids, ...)
       for i, row in ipairs(expected_rows) do
         msg_expected_rows[i] = row
         local m = (row ~= actual_rows[i] and row:match('{MATCH:(.*)}') or nil)
-        if row ~= actual_rows[i] and (not m or not (actual_rows[i] and actual_rows[i]:match(m))) then
+        if row ~= actual_rows[i] and (not m or not actual_rows[i]:match(m)) then
           msg_expected_rows[i] = '*' .. msg_expected_rows[i]
           if i <= #actual_rows then
             actual_rows[i] = '*' .. actual_rows[i]
@@ -546,7 +546,7 @@ function Screen:_wait(check, flags)
 
     return true
   end
-  local eof = run_session(self._session, flags.request_cb, notification_cb, nil, minimal_timeout)
+  run_session(self._session, flags.request_cb, notification_cb, nil, minimal_timeout)
   if not did_flush then
     err = "no flush received"
   elseif not checked then
@@ -557,9 +557,9 @@ function Screen:_wait(check, flags)
     end
   end
 
-  if not success_seen and not eof then
+  if not success_seen then
     did_miminal_timeout = true
-    eof = run_session(self._session, flags.request_cb, notification_cb, nil, timeout-minimal_timeout)
+    run_session(self._session, flags.request_cb, notification_cb, nil, timeout-minimal_timeout)
   end
 
   local did_warn = false
@@ -600,10 +600,8 @@ between asynchronous (feed(), nvim_input()) and synchronous API calls.
 
 
   if err then
-    if eof then err = err..'\n\n'..eof[2] end
     busted.fail(err, 3)
   elseif did_warn then
-    if eof then print(eof[2]) end
     local tb = debug.traceback()
     local index = string.find(tb, '\n%s*%[C]')
     print(string.sub(tb,1,index))
@@ -1581,9 +1579,9 @@ end
 
 function Screen:_equal_attrs(a, b)
     return a.bold == b.bold and a.standout == b.standout and
-       a.underline == b.underline and a.undercurl == b.undercurl and
-       a.underdouble == b.underdouble and a.underdotted == b.underdotted and
-       a.underdashed == b.underdashed and a.italic == b.italic and
+       a.underline == b.underline and a.underlineline == b.underlineline and
+       a.undercurl == b.undercurl and a.underdot == b.underdot and
+       a.underdash == b.underdash and a.italic == b.italic and
        a.reverse == b.reverse and a.foreground == b.foreground and
        a.background == b.background and a.special == b.special and a.blend == b.blend and
        a.strikethrough == b.strikethrough and

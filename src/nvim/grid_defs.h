@@ -10,7 +10,7 @@
 #define MAX_MCO  6  // fixed value for 'maxcombine'
 
 // The characters and attributes drawn on grids.
-typedef char schar_T[(MAX_MCO + 1) * 4 + 1];
+typedef char_u schar_T[(MAX_MCO + 1) * 4 + 1];
 typedef int sattr_T;
 
 enum {
@@ -127,14 +127,5 @@ typedef struct {
   StlClickDefinition def;  ///< Click definition.
   const char *start;       ///< Location where region starts.
 } StlClickRecord;
-
-typedef struct {
-  int args[3];
-  int icell;
-  int ncells;
-  int coloff;
-  int cur_attr;
-  int clear_width;
-} GridLineEvent;
 
 #endif  // NVIM_GRID_DEFS_H

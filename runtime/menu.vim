@@ -2,7 +2,7 @@
 " You can also use this as a start for your own set of menus.
 "
 " Maintainer:	Bram Moolenaar <Bram@vim.org>
-" Last Change:	2020 Mar 29
+" Last Change:	2019 Dec 10
 
 " Note that ":an" (short for ":anoremenu") is often used to make a menu work
 " in all modes and avoid side effects from mappings defined by the user.
@@ -139,11 +139,11 @@ an 10.600 &File.-SEP4-				<Nop>
 an 10.610 &File.Sa&ve-Exit<Tab>:wqa		:confirm wqa<CR>
 an 10.620 &File.E&xit<Tab>:qa			:confirm qa<CR>
 
-func s:SelectAll()
+func! <SID>SelectAll()
   exe "norm! gg" . (&slm == "" ? "VG" : "gH\<C-O>G")
 endfunc
 
-func s:FnameEscape(fname)
+func! s:FnameEscape(fname)
   if exists('*fnameescape')
     return fnameescape(a:fname)
   endif
@@ -164,9 +164,6 @@ if exists(':tlmenu')
 endif
 nnoremenu 20.360 &Edit.&Paste<Tab>"+gP		"+gP
 cnoremenu	 &Edit.&Paste<Tab>"+gP		<C-R>+
-if exists(':tlmenu')
-  tlnoremenu	 &Edit.&Paste<Tab>"+gP		<C-W>"+
-endif
 exe 'vnoremenu <script> &Edit.&Paste<Tab>"+gP	' . paste#paste_cmd['v']
 exe 'inoremenu <script> &Edit.&Paste<Tab>"+gP	' . paste#paste_cmd['i']
 nnoremenu 20.370 &Edit.Put\ &Before<Tab>[p	[p
@@ -356,7 +353,7 @@ endfun
 let s:did_setup_color_schemes = 0
 
 " Setup the Edit.Color Scheme submenu
-func s:SetupColorSchemes() abort
+func! s:SetupColorSchemes() abort
   if s:did_setup_color_schemes
     return
   endif
@@ -388,7 +385,7 @@ endif
 if has("keymap")
   let s:did_setup_keymaps = 0
 
-  func s:SetupKeymaps() abort
+  func! s:SetupKeymaps() abort
     if s:did_setup_keymaps
       return
     endif
@@ -454,7 +451,7 @@ if has("spell")
   an <silent> 40.335.270 &Tools.&Spelling.&Find\ More\ Languages	:call <SID>SpellLang()<CR>
 
   let s:undo_spelllang = ['aun &Tools.&Spelling.&Find\ More\ Languages']
-  func s:SpellLang()
+  func! s:SpellLang()
     for cmd in s:undo_spelllang
       exe "silent! " . cmd
     endfor
@@ -566,7 +563,7 @@ an <silent> 40.540 &Tools.Conve&rt\ Back<Tab>:%!xxd\ -r
 
 " Use a function to do the conversion, so that it also works with 'insertmode'
 " set.
-func s:XxdConv()
+func! s:XxdConv()
   let mod = &mod
   if has("vms")
     %!mc vim:xxd
@@ -580,7 +577,7 @@ func s:XxdConv()
   let &mod = mod
 endfun
 
-func s:XxdBack()
+func! s:XxdBack()
   let mod = &mod
   if has("vms")
     %!mc vim:xxd -r
@@ -593,7 +590,7 @@ func s:XxdBack()
   let &mod = mod
 endfun
 
-func s:XxdFind()
+func! s:XxdFind()
   if !exists("g:xxdprogram")
     " On the PC xxd may not be in the path but in the install directory
     if has("win32") && !executable("xxd")
@@ -610,7 +607,7 @@ endfun
 let s:did_setup_compilers = 0
 
 " Setup the Tools.Compiler submenu
-func s:SetupCompilers() abort
+func! s:SetupCompilers() abort
   if s:did_setup_compilers
     return
   endif
@@ -634,7 +631,7 @@ endif
 
 " Load ColorScheme, Compiler Setting and Keymap menus when idle.
 if !exists("do_no_lazyload_menus")
-  func s:SetupLazyloadMenus()
+  func! s:SetupLazyloadMenus()
     call s:SetupColorSchemes()
     call s:SetupCompilers()
     if has("keymap")
@@ -656,75 +653,51 @@ if !exists("no_buffers_menu")
 " startup faster.
 let s:bmenu_wait = 1
 
-" Dictionary of buffer number to name. This helps prevent problems where a
-" buffer as renamed and we didn't keep track of that.
-let s:bmenu_items = {}
-
 if !exists("bmenu_priority")
   let bmenu_priority = 60
 endif
 
-" invoked from a BufCreate or BufFilePost autocommand
-func s:BMAdd()
+func! s:BMAdd()
   if s:bmenu_wait == 0
     " when adding too many buffers, redraw in short format
     if s:bmenu_count == &menuitems && s:bmenu_short == 0
       call s:BMShow()
     else
-      let name = expand("<afile>")
-      let num = expand("<abuf>") + 0 " add zero to convert to a number type
-      if s:BMCanAdd(name, num)
-	call <SID>BMFilename(name, num)
-	let s:bmenu_count += 1
-      endif
+      call <SID>BMFilename(expand("<afile>"), expand("<abuf>"))
+      let s:bmenu_count = s:bmenu_count + 1
     endif
   endif
 endfunc
 
-" invoked from a BufDelete or BufFilePre autocommand
-func s:BMRemove()
+func! s:BMRemove()
   if s:bmenu_wait == 0
-    let bufnum = expand("<abuf>")
-    if s:bmenu_items->has_key(bufnum)
-      let menu_name = s:bmenu_items[bufnum]
-      exe 'silent! aun &Buffers.' . menu_name
-      let s:bmenu_count = s:bmenu_count - 1
-      unlet s:bmenu_items[bufnum]
+    let name = expand("<afile>")
+    if isdirectory(name)
+      return
     endif
-  endif
-endfunc
+    let munge = <SID>BMMunge(name, expand("<abuf>"))
 
-" Return non-zero if buffer with number "name" / "num" is useful to add in the
-" buffer menu.
-func s:BMCanAdd(name, num)
-  " no directory or unlisted buffer
-  if isdirectory(a:name) || !buflisted(a:num)
-    return 0
+    if s:bmenu_short == 0
+      exe 'silent! aun &Buffers.' . munge
+    else
+      exe 'silent! aun &Buffers.' . <SID>BMHash2(munge) . munge
+    endif
+    let s:bmenu_count = s:bmenu_count - 1
   endif
-
-  " no special buffer, such as terminal or popup
-  let buftype = getbufvar(a:num, '&buftype')
-  if buftype != '' && buftype != 'nofile' && buftype != 'nowrite'
-    return 0
-  endif
-
-  " only existing buffers
-  return bufexists(a:num)
 endfunc
 
 " Create the buffer menu (delete an existing one first).
-func s:BMShow(...)
+func! s:BMShow(...)
   let s:bmenu_wait = 1
   let s:bmenu_short = 1
   let s:bmenu_count = 0
-  let s:bmenu_items = {}
   "
   " get new priority, if exists
   if a:0 == 1
     let g:bmenu_priority = a:1
   endif
 
-  " Remove old menu, if it exists; keep one entry to avoid a torn off menu to
+  " Remove old menu, if exists; keep one entry to avoid a torn off menu to
   " disappear.  Use try/catch to avoid setting v:errmsg
   try | unmenu &Buffers | catch | endtry
   exe 'noremenu ' . g:bmenu_priority . ".1 &Buffers.Dummy l"
@@ -745,7 +718,7 @@ func s:BMShow(...)
   " figure out how many buffers there are
   let buf = 1
   while buf <= bufnr('$')
-    if s:BMCanAdd(bufname(buf), buf)
+    if bufexists(buf) && !isdirectory(bufname(buf)) && buflisted(buf)
       let s:bmenu_count = s:bmenu_count + 1
     endif
     let buf = buf + 1
@@ -757,9 +730,8 @@ func s:BMShow(...)
   " iterate through buffer list, adding each buffer to the menu:
   let buf = 1
   while buf <= bufnr('$')
-    let name = bufname(buf)
-    if s:BMCanAdd(name, buf)
-      call <SID>BMFilename(name, buf)
+    if bufexists(buf) && !isdirectory(bufname(buf)) && buflisted(buf)
+      call <SID>BMFilename(bufname(buf), buf)
     endif
     let buf = buf + 1
   endwhile
@@ -771,7 +743,7 @@ func s:BMShow(...)
   aug END
 endfunc
 
-func s:BMHash(name)
+func! s:BMHash(name)
   " Make name all upper case, so that chars are between 32 and 96
   let nm = substitute(a:name, ".*", '\U\0', "")
   if has("ebcdic")
@@ -786,7 +758,7 @@ func s:BMHash(name)
   return (char2nr(nm[0]) - sp) * 0x800000 + (char2nr(nm[1]) - sp) * 0x20000 + (char2nr(nm[2]) - sp) * 0x1000 + (char2nr(nm[3]) - sp) * 0x80 + (char2nr(nm[4]) - sp) * 0x20 + (char2nr(nm[5]) - sp)
 endfunc
 
-func s:BMHash2(name)
+func! s:BMHash2(name)
   let nm = substitute(a:name, ".", '\L\0', "")
   " Not exactly right for EBCDIC...
   if nm[0] < 'a' || nm[0] > 'z'
@@ -806,22 +778,22 @@ func s:BMHash2(name)
   endif
 endfunc
 
-" Insert a buffer name into the buffer menu.
-func s:BMFilename(name, num)
+" insert a buffer name into the buffer menu:
+func! s:BMFilename(name, num)
+  if isdirectory(a:name)
+    return
+  endif
   let munge = <SID>BMMunge(a:name, a:num)
   let hash = <SID>BMHash(munge)
   if s:bmenu_short == 0
-    let s:bmenu_items[a:num] = munge
-    let cmd = 'an ' . g:bmenu_priority . '.' . hash . ' &Buffers.' . munge
+    let name = 'an ' . g:bmenu_priority . '.' . hash . ' &Buffers.' . munge
   else
-    let menu_name = <SID>BMHash2(munge) . munge
-    let s:bmenu_items[a:num] = menu_name
-    let cmd = 'an ' . g:bmenu_priority . '.' . hash . '.' . hash . ' &Buffers.' . menu_name
+    let name = 'an ' . g:bmenu_priority . '.' . hash . '.' . hash . ' &Buffers.' . <SID>BMHash2(munge) . munge
   endif
   " set 'cpo' to include the <CR>
   let cpo_save = &cpo
   set cpo&vim
-  exe cmd . ' :confirm b' . a:num . '<CR>'
+  exe name . ' :confirm b' . a:num . '<CR>'
   let &cpo = cpo_save
 endfunc
 
@@ -829,7 +801,7 @@ endfunc
 if !exists("g:bmenu_max_pathlen")
   let g:bmenu_max_pathlen = 35
 endif
-func s:BMTruncName(fname)
+func! s:BMTruncName(fname)
   let name = a:fname
   if g:bmenu_max_pathlen < 5
     let name = ""
@@ -849,7 +821,7 @@ func s:BMTruncName(fname)
   return name
 endfunc
 
-func s:BMMunge(fname, bnum)
+func! s:BMMunge(fname, bnum)
   let name = a:fname
   if name == ''
     if !exists("g:menutrans_no_file")
@@ -966,7 +938,7 @@ cnoremenu <script> <silent> 1.100 PopUp.Select\ &All	<C-U>call <SID>SelectAll()<
 if has("spell")
   " Spell suggestions in the popup menu.  Note that this will slow down the
   " appearance of the menu!
-  func s:SpellPopup()
+  func! <SID>SpellPopup()
     if exists("s:changeitem") && s:changeitem != ''
       call <SID>SpellDel()
     endif
@@ -1022,7 +994,7 @@ if has("spell")
     call cursor(0, curcol)	" put the cursor back where it was
   endfunc
 
-  func s:SpellReplace(n)
+  func! <SID>SpellReplace(n)
     let l = getline('.')
     " Move the cursor to the start of the word.
     call spellbadword()
@@ -1030,7 +1002,7 @@ if has("spell")
 	  \ . strpart(l, col('.') + len(s:fromword) - 1))
   endfunc
 
-  func s:SpellDel()
+  func! <SID>SpellDel()
     exe "aunmenu PopUp." . s:changeitem
     exe "aunmenu PopUp." . s:additem
     exe "aunmenu PopUp." . s:ignoreitem

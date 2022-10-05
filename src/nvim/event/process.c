@@ -120,7 +120,7 @@ int process_spawn(Process *proc, bool in, bool out, bool err)
   proc->internal_close_cb = decref;
   proc->refcount++;
   kl_push(WatcherPtr, proc->loop->children, proc);
-  DLOG("new: pid=%d argv=[%s]", proc->pid, proc->argv[0]);
+  DLOG("new: pid=%d argv=[%s]", proc->pid, *proc->argv);
   return 0;
 }
 
@@ -386,13 +386,11 @@ static void process_close_handles(void **argv)
 {
   Process *proc = argv[0];
 
-  exit_need_delay++;
   flush_stream(proc, &proc->out);
   flush_stream(proc, &proc->err);
 
   process_close_streams(proc);
   process_close(proc);
-  exit_need_delay--;
 }
 
 static void on_process_exit(Process *proc)

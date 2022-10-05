@@ -4,15 +4,14 @@
 #include "nvim/api/private/converter.h"
 #include "nvim/api/private/helpers.h"
 #include "nvim/api/ui.h"
-#include "nvim/autocmd.h"
 #include "nvim/channel.h"
 #include "nvim/eval.h"
 #include "nvim/eval/encode.h"
 #include "nvim/event/socket.h"
+#include "nvim/fileio.h"
 #include "nvim/lua/executor.h"
 #include "nvim/msgpack_rpc/channel.h"
 #include "nvim/msgpack_rpc/server.h"
-#include "nvim/os/fs.h"
 #include "nvim/os/shell.h"
 #ifdef WIN32
 # include "nvim/os/os_win_console.h"
@@ -143,7 +142,7 @@ bool channel_close(uint64_t id, ChannelPart part, const char **error)
       api_free_luaref(chan->stream.internal.cb);
       chan->stream.internal.cb = LUA_NOREF;
       chan->stream.internal.closed = true;
-      terminal_close(&chan->term, 0);
+      terminal_close(chan->term, 0);
     } else {
       channel_decref(chan);
     }
@@ -189,7 +188,7 @@ Channel *channel_alloc(ChannelStreamType type)
 
 void channel_create_event(Channel *chan, const char *ext_source)
 {
-#if MIN_LOG_LEVEL <= LOGLVL_INF
+#if MIN_LOG_LEVEL <= INFO_LOG_LEVEL
   const char *source;
 
   if (ext_source) {
@@ -315,6 +314,8 @@ Channel *channel_job_start(char **argv, CallbackReader on_stdout, CallbackReader
                            ChannelStdinMode stdin_mode, const char *cwd, uint16_t pty_width,
                            uint16_t pty_height, dict_T *env, varnumber_T *status_out)
 {
+  assert(cwd == NULL || os_isdir_executable(cwd));
+
   Channel *chan = channel_alloc(kChannelStreamProc);
   chan->on_data = on_stdout;
   chan->on_stderr = on_stderr;
@@ -704,7 +705,7 @@ static void channel_process_exit_cb(Process *proc, int status, void *data)
 {
   Channel *chan = data;
   if (chan->term) {
-    terminal_close(&chan->term, status);
+    terminal_close(chan->term, status);
   }
 
   // If process did not exit, we only closed the handle of a detached process.
@@ -797,9 +798,8 @@ static inline void term_delayed_free(void **argv)
     return;
   }
 
-  if (chan->term) {
-    terminal_destroy(&chan->term);
-  }
+  terminal_destroy(chan->term);
+  chan->term = NULL;
   channel_decref(chan);
 }
 

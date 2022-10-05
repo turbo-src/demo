@@ -9,7 +9,6 @@ local feed_command = helpers.feed_command
 local funcs = helpers.funcs
 local meths = helpers.meths
 local iswin = helpers.iswin
-local uname = helpers.uname
 
 local fname = 'Xtest-functional-ex_cmds-write'
 local fname_bak = fname .. '~'
@@ -53,9 +52,6 @@ describe(':write', function()
   end)
 
   it('&backupcopy=no replaces symlink with new file', function()
-    if uname() == 'freebsd' then
-      pending('Failing FreeBSD test')
-    end
     command('set backupcopy=no')
     write_file('test_bkc_file.txt', 'content0')
     if iswin() then
@@ -95,9 +91,6 @@ describe(':write', function()
   end)
 
   it('errors out correctly', function()
-    if uname() == 'freebsd' then
-      pending('Failing FreeBSD test')
-    end
     command('let $HOME=""')
     eq(funcs.fnamemodify('.', ':p:h'), funcs.fnamemodify('.', ':p:h:~'))
     -- Message from check_overwrite

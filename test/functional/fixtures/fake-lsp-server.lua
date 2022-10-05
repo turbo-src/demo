@@ -67,12 +67,10 @@ local function expect_notification(method, params, ...)
   local message = read_message()
   assert_eq(method, message.method,
       ..., "expect_notification", "method")
-  if params then
-    assert_eq(params, message.params,
-        ..., "expect_notification", method, "params")
-    assert_eq({jsonrpc = "2.0"; method=method, params=params}, message,
-        ..., "expect_notification", "message")
-  end
+  assert_eq(params, message.params,
+      ..., "expect_notification", method, "params")
+  assert_eq({jsonrpc = "2.0"; method=method, params=params}, message,
+      ..., "expect_notification", "message")
 end
 
 local function expect_request(method, handler, ...)
@@ -116,19 +114,6 @@ function tests.basic_init()
       notify('test')
     end;
   }
-end
-
-function tests.basic_init_did_change_configuration()
-  skeleton({
-    on_init = function(_)
-      return {
-        capabilities = {},
-      }
-    end,
-    body = function()
-      expect_notification('workspace/didChangeConfiguration', { settings = { dummy = 1 } })
-    end,
-  })
 end
 
 function tests.check_workspace_configuration()
@@ -255,26 +240,6 @@ function tests.basic_check_capabilities()
       }
     end;
     body = function()
-    end;
-  }
-end
-
-function tests.text_document_save_did_open()
-  skeleton {
-    on_init = function()
-      return {
-        capabilities = {
-          textDocumentSync = {
-            save = true
-          }
-        }
-      }
-    end;
-    body = function()
-      notify('start')
-      expect_notification('textDocument/didOpen')
-      expect_notification('textDocument/didSave')
-      notify('shutdown')
     end;
   }
 end
@@ -778,35 +743,6 @@ function tests.code_action_with_resolve()
     end;
   }
 end
-
-function tests.code_action_server_side_command()
-  skeleton({
-    on_init = function()
-      return {
-        capabilities = {
-          codeActionProvider = {
-            resolveProvider = false,
-          },
-        },
-      }
-    end,
-    body = function()
-      notify('start')
-      local cmd = {
-        title = 'Command 1',
-        command = 'dummy1',
-      }
-      expect_request('textDocument/codeAction', function()
-        return nil, { cmd }
-      end)
-      expect_request('workspace/executeCommand', function()
-        return nil, cmd
-      end)
-      notify('shutdown')
-    end,
-  })
-end
-
 
 function tests.code_action_filter()
   skeleton {

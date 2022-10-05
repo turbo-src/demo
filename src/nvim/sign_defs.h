@@ -10,9 +10,9 @@
 
 // Sign group
 typedef struct signgroup_S {
-  uint16_t sg_refcount;   // number of signs in this group
-  int sg_next_sign_id;    // next sign id for this group
-  char sg_name[1];        // sign group name
+  uint16_t sg_refcount;      // number of signs in this group
+  int sg_next_sign_id;  // next sign id for this group
+  char_u sg_name[1];       // sign group name
 } signgroup_T;
 
 // Macros to get the sign group structure from the group name
@@ -33,11 +33,15 @@ struct sign_entry {
 };
 
 /// Sign attributes. Used by the screen refresh routines.
-typedef struct {
-  char *text;
-  int hl_attr_id;
-  int priority;
-} SignTextAttrs;
+typedef struct sign_attrs_S {
+  int sat_typenr;
+  char_u *sat_text;
+  int sat_texthl;
+  int sat_linehl;
+  int sat_culhl;
+  int sat_numhl;
+  int sat_prio;  // Used for inserting extmark signs
+} sign_attrs_T;
 
 #define SIGN_SHOW_MAX 9
 
@@ -51,4 +55,4 @@ typedef enum {
   SIGN_TEXT,
 } SignType;
 
-#endif  // NVIM_SIGN_DEFS_H
+#endif // NVIM_SIGN_DEFS_H

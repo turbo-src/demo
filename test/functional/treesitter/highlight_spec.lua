@@ -5,14 +5,12 @@ local clear = helpers.clear
 local insert = helpers.insert
 local exec_lua = helpers.exec_lua
 local feed = helpers.feed
-local command = helpers.command
-local meths = helpers.meths
-local eq = helpers.eq
+local pending_c_parser = helpers.pending_c_parser
 
 before_each(clear)
 
 local hl_query = [[
-  (ERROR) @error
+  (ERROR) @ErrorMsg
 
   "if" @keyword
   "else" @keyword
@@ -25,24 +23,23 @@ local hl_query = [[
   "enum" @type
   "extern" @type
 
-  ; nonexistent specializer for string should fallback to string
-  (string_literal) @string.nonexistent_specializer
+  (string_literal) @string.nonexistent-specializer-for-string.should-fallback-to-string
 
   (number_literal) @number
   (char_literal) @string
 
   (type_identifier) @type
-  ((type_identifier) @constant.builtin (#eq? @constant.builtin "LuaRef"))
+  ((type_identifier) @Special (#eq? @Special "LuaRef"))
 
   (primitive_type) @type
   (sized_type_specifier) @type
 
   ; Use lua regexes
-  ((identifier) @function (#contains? @function "lua_"))
+  ((identifier) @Identifier (#contains? @Identifier "lua_"))
   ((identifier) @Constant (#lua-match? @Constant "^[A-Z_]+$"))
-  ((identifier) @Normal (#vim-match? @Normal "^lstate$"))
+  ((identifier) @Normal (#vim-match? @Constant "^lstate$"))
 
-  ((binary_expression left: (identifier) @warning.left right: (identifier) @warning.right) (#eq? @warning.left @warning.right))
+  ((binary_expression left: (identifier) @WarningMsg.left right: (identifier) @WarningMsg.right) (#eq? @WarningMsg.left @WarningMsg.right))
 
   (comment) @comment
 ]]
@@ -106,11 +103,11 @@ describe('treesitter highlighting', function()
     }
 
     exec_lua([[ hl_query = ... ]], hl_query)
-    command [[ hi link @error ErrorMsg ]]
-    command [[ hi link @warning WarningMsg ]]
   end)
 
   it('is updated with edits', function()
+    if pending_c_parser(pending) then return end
+
     insert(hl_text)
     screen:expect{grid=[[
       /// Schedule Lua callback on main loop's event queue             |
@@ -274,6 +271,8 @@ describe('treesitter highlighting', function()
   end)
 
   it('is updated with :sort', function()
+    if pending_c_parser(pending) then return end
+
     insert(test_text)
     exec_lua [[
       local parser = vim.treesitter.get_parser(0, "c")
@@ -347,6 +346,8 @@ describe('treesitter highlighting', function()
   end)
 
   it("supports with custom parser", function()
+    if pending_c_parser(pending) then return end
+
     screen:set_default_attr_ids {
       [1] = {bold = true, foreground = Screen.colors.SeaGreen4};
     }
@@ -411,6 +412,8 @@ describe('treesitter highlighting', function()
   end)
 
   it("supports injected languages", function()
+    if pending_c_parser(pending) then return end
+
     insert([[
     int x = INT_MAX;
     #define READ_STRING(x, y) (char_u *)read_string((x), (size_t)(y))
@@ -471,6 +474,8 @@ describe('treesitter highlighting', function()
   end)
 
   it("supports overriding queries, like ", function()
+    if pending_c_parser(pending) then return end
+
     insert([[
     int x = INT_MAX;
     #define READ_STRING(x, y) (char_u *)read_string((x), (size_t)(y))
@@ -510,6 +515,8 @@ describe('treesitter highlighting', function()
   end)
 
   it("supports highlighting with custom highlight groups", function()
+    if pending_c_parser(pending) then return end
+
     insert(hl_text)
 
     exec_lua [[
@@ -540,7 +547,7 @@ describe('treesitter highlighting', function()
 
     -- This will change ONLY the literal strings to look like comments
     -- The only literal string is the "vim.schedule: expected function" in this test.
-    exec_lua [[vim.cmd("highlight link @string.nonexistent_specializer comment")]]
+    exec_lua [[vim.cmd("highlight link cString comment")]]
     screen:expect{grid=[[
       {2:/// Schedule Lua callback on main loop's event queue}             |
       {3:static} {3:int} {11:nlua_schedule}({3:lua_State} *{3:const} lstate)                |
@@ -565,6 +572,8 @@ describe('treesitter highlighting', function()
   end)
 
   it("supports highlighting with priority", function()
+    if pending_c_parser(pending) then return end
+
     insert([[
     int x = INT_MAX;
     #define READ_STRING(x, y) (char_u *)read_string((x), (size_t)(y))
@@ -580,9 +589,9 @@ describe('treesitter highlighting', function()
     -- expect everything to have Error highlight
     screen:expect{grid=[[
       {12:int}{8: x = INT_MAX;}                                                 |
-      {8:#define READ_STRING(x, y) (}{12:char_u}{8: *)read_string((x), (}{12:size_t}{8:)(y))}|
-      {8:#define foo }{12:void}{8: main() { \}                                      |
-      {8:              }{12:return}{8: 42;  \}                                      |
+      {8:#define READ_STRING(x, y) (char_u *)read_string((x), (size_t)(y))}|
+      {8:#define foo void main() { \}                                      |
+      {8:              return 42;  \}                                      |
       {8:            }}                                                    |
       ^                                                                 |
       {1:~                                                                }|
@@ -603,14 +612,11 @@ describe('treesitter highlighting', function()
       -- bold will not be overwritten at the moment
       [12] = {background = Screen.colors.Red, bold = true, foreground = Screen.colors.Grey100};
     }}
-
-    eq({
-      {capture='Error', priority='101'};
-      {capture='type'};
-    }, exec_lua [[ return vim.treesitter.get_captures_at_position(0, 0, 2) ]])
     end)
 
   it("allows to use captures with dots (don't use fallback when specialization of foo exists)", function()
+    if pending_c_parser(pending) then return end
+
     insert([[
     char* x = "Will somebody ever read this?";
     ]])
@@ -636,13 +642,11 @@ describe('treesitter highlighting', function()
                                                                        |
     ]]}
 
-    command [[
-      hi link @foo.bar Type
-      hi link @foo String
-    ]]
     exec_lua [[
       local parser = vim.treesitter.get_parser(0, "c", {})
       local highlighter = vim.treesitter.highlighter
+      highlighter.hl_map['foo.bar'] = 'Type'
+      highlighter.hl_map['foo'] = 'String'
       test_hl = highlighter.new(parser, {queries = {c = "(primitive_type) @foo.bar (string_literal) @foo"}})
     ]]
 
@@ -666,32 +670,10 @@ describe('treesitter highlighting', function()
       {1:~                                                                }|
                                                                        |
     ]]}
-
-    -- clearing specialization reactivates fallback
-    command [[ hi clear @foo.bar ]]
-    screen:expect{grid=[[
-      {5:char}* x = {5:"Will somebody ever read this?"};                       |
-      ^                                                                 |
-      {1:~                                                                }|
-      {1:~                                                                }|
-      {1:~                                                                }|
-      {1:~                                                                }|
-      {1:~                                                                }|
-      {1:~                                                                }|
-      {1:~                                                                }|
-      {1:~                                                                }|
-      {1:~                                                                }|
-      {1:~                                                                }|
-      {1:~                                                                }|
-      {1:~                                                                }|
-      {1:~                                                                }|
-      {1:~                                                                }|
-      {1:~                                                                }|
-                                                                       |
-    ]]}
   end)
 
   it("supports conceal attribute", function()
+    if pending_c_parser(pending) then return end
     insert(hl_text)
 
     -- conceal can be empty or a single cchar.
@@ -730,26 +712,32 @@ describe('treesitter highlighting', function()
     ]]}
   end)
 
-  it("@foo.bar groups has the correct fallback behavior", function()
-    local get_hl = function(name) return meths.get_hl_by_name(name,1).foreground end
-    meths.set_hl(0, "@foo", {fg = 1})
-    meths.set_hl(0, "@foo.bar", {fg = 2})
-    meths.set_hl(0, "@foo.bar.baz", {fg = 3})
+  it("hl_map has the correct fallback behavior", function()
+    exec_lua [[
+      local hl_map = vim.treesitter.highlighter.hl_map
+      hl_map["foo"] = 1
+      hl_map["foo.bar"] = 2
+      hl_map["foo.bar.baz"] = 3
 
-    eq(1, get_hl"@foo")
-    eq(1, get_hl"@foo.a.b.c.d")
-    eq(2, get_hl"@foo.bar")
-    eq(2, get_hl"@foo.bar.a.b.c.d")
-    eq(3, get_hl"@foo.bar.baz")
-    eq(3, get_hl"@foo.bar.baz.d")
+      assert(hl_map["foo"] == 1)
+      assert(hl_map["foo.a.b.c.d"] == 1)
+      assert(hl_map["foo.bar"] == 2)
+      assert(hl_map["foo.bar.a.b.c.d"] == 2)
+      assert(hl_map["foo.bar.baz"] == 3)
+      assert(hl_map["foo.bar.baz.d"] == 3)
 
-    -- lookup is case insensitive
-    eq(2, get_hl"@FOO.BAR.SPAM")
+      hl_map["FOO"] = 1
+      hl_map["FOO.BAR"] = 2
+      assert(hl_map["FOO.BAR.BAZ"] == 2)
 
-    meths.set_hl(0, "@foo.missing.exists", {fg = 3})
-    eq(1, get_hl"@foo.missing")
-    eq(3, get_hl"@foo.missing.exists")
-    eq(3, get_hl"@foo.missing.exists.bar")
-    eq(nil, get_hl"@total.nonsense.but.a.lot.of.dots")
+      hl_map["foo.missing.exists"] = 3
+      assert(hl_map["foo.missing"] == 1)
+      assert(hl_map["foo.missing.exists"] == 3)
+      assert(hl_map["foo.missing.exists.bar"] == 3)
+      assert(hl_map["total.nonsense.but.a.lot.of.dots"] == nil)
+      -- It will not perform a second look up of this variable but return a sentinel value
+      assert(hl_map["total.nonsense.but.a.lot.of.dots"] == "__notfound")
+    ]]
+
   end)
 end)

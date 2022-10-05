@@ -1,9 +1,9 @@
 local helpers = require('test.functional.helpers')(after_each)
 local clear, eq, eval, exc_exec, feed_command, feed, insert, neq, next_msg, nvim,
-  testprg, ok, source, write_file, mkdir, rmdir = helpers.clear,
+  nvim_dir, ok, source, write_file, mkdir, rmdir = helpers.clear,
   helpers.eq, helpers.eval, helpers.exc_exec, helpers.feed_command, helpers.feed,
   helpers.insert, helpers.neq, helpers.next_msg, helpers.nvim,
-  helpers.testprg, helpers.ok, helpers.source,
+  helpers.nvim_dir, helpers.ok, helpers.source,
   helpers.write_file, helpers.mkdir, helpers.rmdir
 local assert_alive = helpers.assert_alive
 local command = helpers.command
@@ -21,7 +21,6 @@ local nvim_set = helpers.nvim_set
 local expect_twostreams = helpers.expect_twostreams
 local expect_msg_seq = helpers.expect_msg_seq
 local pcall_err = helpers.pcall_err
-local matches = helpers.matches
 local Screen = require('test.functional.ui.screen')
 
 describe('jobs', function()
@@ -74,16 +73,9 @@ describe('jobs', function()
       nvim('command', [[call jobstart('echo $TOTO $VAR', g:job_opts)]])
     end
 
-    expect_msg_seq(
-      {
-        {'notification', 'stdout', {0, {'hello world abc'}}},
-        {'notification', 'stdout', {0, {'', ''}}},
-      },
-      {
-        {'notification', 'stdout', {0, {'hello world abc', ''}}},
-        {'notification', 'stdout', {0, {''}}}
-      }
-    )
+    expect_msg_seq({
+      {'notification', 'stdout', {0, {'hello world abc', ''}}},
+    })
   end)
 
   it('append environment with pty #env', function()
@@ -97,16 +89,9 @@ describe('jobs', function()
     else
       nvim('command', [[call jobstart('echo $TOTO $VAR', g:job_opts)]])
     end
-    expect_msg_seq(
-      {
-        {'notification', 'stdout', {0, {'hello world abc'}}},
-        {'notification', 'stdout', {0, {'', ''}}},
-      },
-      {
-        {'notification', 'stdout', {0, {'hello world abc', ''}}},
-        {'notification', 'stdout', {0, {''}}}
-      }
-    )
+    expect_msg_seq({
+      {'notification', 'stdout', {0, {'hello world abc', ''}}},
+    })
   end)
 
   it('replace environment #env', function()
@@ -230,8 +215,8 @@ describe('jobs', function()
     local dir = 'Xtest_not_executable_dir'
     mkdir(dir)
     funcs.setfperm(dir, 'rw-------')
-    matches('^Vim%(call%):E903: Process failed to start: permission denied: .*',
-            pcall_err(nvim, 'command', "call jobstart(['pwd'], {'cwd': '"..dir.."'})"))
+    eq('Vim(call):E475: Invalid argument: expected valid directory',
+      pcall_err(nvim, 'command', "call jobstart('pwd', {'cwd': '"..dir.."'})"))
     rmdir(dir)
   end)
 
@@ -691,13 +676,12 @@ describe('jobs', function()
     -- jobstart() shares its v:servername with the child via $NVIM.
     eq('NVIM='..addr, get_env_in_child_job('NVIM'))
     -- $NVIM_LISTEN_ADDRESS is unset by server_init in the child.
-    eq('NVIM_LISTEN_ADDRESS=v:null', get_env_in_child_job('NVIM_LISTEN_ADDRESS'))
-    eq('NVIM_LISTEN_ADDRESS=v:null', get_env_in_child_job('NVIM_LISTEN_ADDRESS',
+    eq('NVIM_LISTEN_ADDRESS=null', get_env_in_child_job('NVIM_LISTEN_ADDRESS'))
+    eq('NVIM_LISTEN_ADDRESS=null', get_env_in_child_job('NVIM_LISTEN_ADDRESS',
       { NVIM_LISTEN_ADDRESS='Xtest_jobstart_env' }))
     -- User can explicitly set $NVIM_LOG_FILE, $VIM, $VIMRUNTIME.
     eq('NVIM_LOG_FILE=Xtest_jobstart_env',
       get_env_in_child_job('NVIM_LOG_FILE', { NVIM_LOG_FILE='Xtest_jobstart_env' }))
-    os.remove('Xtest_jobstart_env')
   end)
 
   describe('jobwait', function()
@@ -1058,7 +1042,8 @@ describe('jobs', function()
         return a:data
       endfunction
       ]])
-      insert(testprg('tty-test'))
+      local ext = iswin() and '.exe' or ''
+      insert(nvim_dir..'/tty-test'..ext)  -- Full path to tty-test.
       nvim('command', 'let g:job_opts.pty = 1')
       nvim('command', 'let exec = [expand("<cfile>:p")]')
       nvim('command', "let j = jobstart(exec, g:job_opts)")

@@ -4,7 +4,7 @@ local assert = require('luassert')
 local luv = require('luv')
 local lfs = require('lfs')
 local relpath = require('pl.path').relpath
-local Paths = require('test.cmakeconfig.paths')
+local Paths = require('test.config.paths')
 
 assert:set_parameter('TableFormatLevel', 100)
 
@@ -40,6 +40,10 @@ function module.popen_r(...)
   return io.popen(module.argss_to_cmd(...), 'r')
 end
 
+function module.popen_w(...)
+  return io.popen(module.argss_to_cmd(...), 'w')
+end
+
 -- sleeps the test runner (_not_ the nvim instance)
 function module.sleep(ms)
   luv.sleep(ms)
@@ -51,31 +55,42 @@ local check_logs_useless_lines = {
   ['See README_MISSING_SYSCALL_OR_IOCTL for guidance']=3,
 }
 
-function module.eq(expected, actual, context)
-  return assert.are.same(expected, actual, context)
-end
-function module.neq(expected, actual, context)
-  return assert.are_not.same(expected, actual, context)
-end
-
---- Asserts that `cond` is true, or prints a message.
+--- Invokes `fn` and includes the tail of `logfile` in the error message if it
+--- fails.
 ---
---- @param cond (boolean) expression to assert
---- @param expected (any) description of expected result
---- @param actual (any) description of actual result
-function module.ok(cond, expected, actual)
-  assert((not expected and not actual) or (expected and actual), 'if "expected" is given, "actual" is also required')
-  local msg = expected and ('expected %s, got: %s'):format(expected, tostring(actual)) or nil
-  return assert(cond, msg)
+---@param logfile string  Log file, defaults to $NVIM_LOG_FILE or '.nvimlog'
+---@param fn string       Function to invoke
+---@param ... string      Function arguments
+local function dumplog(logfile, fn, ...)
+  -- module.validate({
+  --   logfile={logfile,'s',true},
+  --   fn={fn,'f',false},
+  -- })
+  local status, rv = pcall(fn, ...)
+  if status == false then
+    logfile = logfile or os.getenv('NVIM_LOG_FILE') or '.nvimlog'
+    local logtail = module.read_nvim_log(logfile)
+    error(string.format('%s\n%s', tostring(rv), logtail))
+  end
+end
+function module.eq(expected, actual, context, logfile)
+  return dumplog(logfile, assert.are.same, expected, actual, context)
+end
+function module.neq(expected, actual, context, logfile)
+  return dumplog(logfile, assert.are_not.same, expected, actual, context)
+end
+function module.ok(res, msg, logfile)
+  return dumplog(logfile, assert.is_true, res, msg)
 end
 
+-- TODO(bfredl): this should "failure" not "error" (issue with dumplog() )
 local function epicfail(state, arguments, _)
   state.failure_message = arguments[1]
   return false
 end
 assert:register("assertion", "epicfail", epicfail)
-function module.fail(msg)
-  return assert.epicfail(msg)
+function module.fail(msg, logfile)
+  return dumplog(logfile, assert.epicfail, msg)
 end
 
 function module.matches(pat, actual)
@@ -85,33 +100,20 @@ function module.matches(pat, actual)
   error(string.format('Pattern does not match.\nPattern:\n%s\nActual:\n%s', pat, actual))
 end
 
---- Asserts that `pat` matches (or *not* if inverse=true) any line in the tail of `logfile`.
+--- Asserts that `pat` matches one or more lines in the tail of $NVIM_LOG_FILE.
 ---
----@param pat (string) Lua pattern to match lines in the log file
----@param logfile (string) Full path to log file (default=$NVIM_LOG_FILE)
----@param nrlines (number) Search up to this many log lines
----@param inverse (boolean) Assert that the pattern does NOT match.
-function module.assert_log(pat, logfile, nrlines, inverse)
+---@param pat string      Lua pattern to search for in the log file
+---@param logfile string  Full path to log file (default=$NVIM_LOG_FILE)
+function module.assert_log(pat, logfile)
   logfile = logfile or os.getenv('NVIM_LOG_FILE') or '.nvimlog'
-  assert(logfile ~= nil, 'no logfile')
-  nrlines = nrlines or 10
-  inverse = inverse or false
+  local nrlines = 10
   local lines = module.read_file_list(logfile, -nrlines) or {}
-  local msg = string.format('Pattern %q %sfound in log (last %d lines): %s:\n%s',
-    pat, (inverse and '' or 'not '), nrlines, logfile, '    '..table.concat(lines, '\n    '))
   for _,line in ipairs(lines) do
-    if line:match(pat) then
-      if inverse then error(msg) else return end
-    end
+    if line:match(pat) then return end
   end
-  if not inverse then error(msg) end
-end
-
---- Asserts that `pat` does NOT matche any line in the tail of `logfile`.
----
---- @see assert_log
-function module.assert_nolog(pat, logfile, nrlines)
-  return module.assert_log(pat, logfile, nrlines, true)
+  local logtail = module.read_nvim_log(logfile)
+  error(string.format('Pattern %q not found in log (last %d lines): %s:\n%s',
+    pat, nrlines, logfile, logtail))
 end
 
 -- Invokes `fn` and returns the error string (with truncated paths), or raises
@@ -269,7 +271,7 @@ module.uname = (function()
       return platform
     end
 
-    if os.getenv("SYSTEM_NAME") then  -- From CMAKE_HOST_SYSTEM_NAME.
+    if os.getenv("SYSTEM_NAME") then  -- From CMAKE_SYSTEM_NAME.
       platform = string.lower(os.getenv("SYSTEM_NAME"))
       return platform
     end
@@ -305,7 +307,6 @@ local function tmpdir_is_local(dir)
   return not not (dir and string.find(dir, 'Xtest'))
 end
 
---- Creates a new temporary file for use by tests.
 module.tmpname = (function()
   local seq = 0
   local tmpdir = tmpdir_get()
@@ -313,8 +314,7 @@ module.tmpname = (function()
     if tmpdir_is_local(tmpdir) then
       -- Cannot control os.tmpname() dir, so hack our own tmpname() impl.
       seq = seq + 1
-      -- "…/Xtest_tmpdir/T42.7"
-      local fname = ('%s/%s.%d'):format(tmpdir, (_G._nvim_test_id or 'nvim-test'), seq)
+      local fname = tmpdir..'/nvim-test-lua-'..seq
       io.open(fname, 'w'):close()
       return fname
     else
@@ -406,6 +406,17 @@ function module.check_cores(app, force)
   tests_skipped = 0
   if found_cores > 0 then
     error("crash detected (see above)")
+  end
+end
+
+function module.which(exe)
+  local pipe = module.popen_r('which', exe)
+  local ret = pipe:read('*a')
+  pipe:close()
+  if ret == '' then
+    return nil
+  else
+    return ret:sub(1, -2)
   end
 end
 
@@ -790,9 +801,10 @@ end
 
 function module.isCI(name)
   local any = (name == nil)
-  assert(any or name == 'github')
+  assert(any or name == 'sourcehut' or name == 'github')
+  local sh = ((any or name == 'sourcehut') and nil ~= os.getenv('SOURCEHUT'))
   local gh = ((any or name == 'github') and nil ~= os.getenv('GITHUB_ACTIONS'))
-  return gh
+  return sh or gh
 
 end
 

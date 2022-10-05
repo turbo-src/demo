@@ -731,8 +731,7 @@ func Test_1_highlight_Normalgroup_exists()
   endif
 endfunc
 
-" Do this test last, sometimes restoring the columns doesn't work
-func Test_z_no_space_before_xxx()
+function Test_no_space_before_xxx()
   " Note: we need to create this highlight group in the test because it does not exist in Neovim
   execute('hi StatusLineTermNC ctermfg=green')
   let l:org_columns = &columns
@@ -740,7 +739,7 @@ func Test_z_no_space_before_xxx()
   let l:hi_StatusLineTermNC = join(split(execute('hi StatusLineTermNC')))
   call assert_match('StatusLineTermNC xxx', l:hi_StatusLineTermNC)
   let &columns = l:org_columns
-endfunc
+endfunction
 
 " Test for :highlight command errors
 func Test_highlight_cmd_errors()

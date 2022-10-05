@@ -15,6 +15,7 @@
 #include <stdbool.h>
 
 #include "nvim/pos.h"
+#include "nvim/profile.h"
 #include "nvim/types.h"
 
 /*
@@ -127,7 +128,7 @@ typedef struct {
   int has_zend;                         // pattern contains \ze
   int has_backref;                      // pattern contains \1 .. \9
   int reghasz;
-  char *pattern;
+  char_u *pattern;
   int nsubexp;                          // number of ()
   int nstate;
   nfa_state_T state[1];                 // actually longer..
@@ -140,8 +141,8 @@ typedef struct {
  */
 typedef struct {
   regprog_T *regprog;
-  char *startp[NSUBEXP];
-  char *endp[NSUBEXP];
+  char_u *startp[NSUBEXP];
+  char_u *endp[NSUBEXP];
   bool rm_ic;
 } regmatch_T;
 
@@ -166,10 +167,5 @@ struct regengine {
   long (*regexec_multi)(regmmatch_T *, win_T *, buf_T *, linenr_T, colnr_T, proftime_T *, int *);
   // char_u *expr;
 };
-
-// Flags used by vim_regsub() and vim_regsub_both()
-#define REGSUB_COPY      1
-#define REGSUB_MAGIC     2
-#define REGSUB_BACKSLASH 4
 
 #endif  // NVIM_REGEXP_DEFS_H

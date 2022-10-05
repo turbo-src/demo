@@ -116,14 +116,14 @@ void ga_grow(garray_T *gap, int n)
 /// @param gap
 void ga_remove_duplicate_strings(garray_T *gap)
 {
-  char **fnames = gap->ga_data;
+  char_u **fnames = gap->ga_data;
 
   // sort the growing array, which puts duplicates next to each other
   sort_strings(fnames, gap->ga_len);
 
   // loop over the growing array in reverse
   for (int i = gap->ga_len - 1; i > 0; i--) {
-    if (path_fnamecmp(fnames[i - 1], fnames[i]) == 0) {
+    if (FNAMECMP(fnames[i - 1], fnames[i]) == 0) {
       xfree(fnames[i]);
 
       // close the gap (move all strings one slot lower)
@@ -131,7 +131,7 @@ void ga_remove_duplicate_strings(garray_T *gap)
         fnames[j - 1] = fnames[j];
       }
 
-      gap->ga_len--;
+      --gap->ga_len;
     }
   }
 }
@@ -198,7 +198,7 @@ void ga_concat(garray_T *gap, const char *restrict s)
     return;
   }
 
-  ga_concat_len(gap, s, strlen(s));
+  ga_concat_len(gap, s, STRLEN(s));
 }
 
 /// Concatenate a string to a growarray which contains characters

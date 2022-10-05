@@ -221,7 +221,7 @@ describe('vim.lsp.diagnostic', function()
 
         local diags = vim.diagnostic.get(diagnostic_bufnr)
         vim.lsp.stop_client(client_id)
-        vim.api.nvim_exec_autocmds('VimLeavePre', { modeline = false })
+        vim.lsp._vim_exit_handler()
         return diags
       ]], line)
       eq(1, #result)

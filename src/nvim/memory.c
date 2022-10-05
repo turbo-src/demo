@@ -9,21 +9,17 @@
 #include <string.h>
 
 #include "nvim/api/extmark.h"
-#include "nvim/arglist.h"
 #include "nvim/context.h"
 #include "nvim/decoration_provider.h"
 #include "nvim/eval.h"
 #include "nvim/highlight.h"
 #include "nvim/highlight_group.h"
-#include "nvim/insexpand.h"
 #include "nvim/lua/executor.h"
-#include "nvim/mapping.h"
 #include "nvim/memfile.h"
 #include "nvim/memory.h"
 #include "nvim/message.h"
 #include "nvim/sign.h"
 #include "nvim/ui.h"
-#include "nvim/ui_compositor.h"
 #include "nvim/vim.h"
 
 #ifdef UNIT_TESTING
@@ -60,8 +56,6 @@ void try_to_free_memory(void)
   clear_sb_text(true);
   // Try to save all buffers and release as many blocks as possible
   mf_release_all();
-
-  arena_free_reuse_blks();
 
   trying_to_free = false;
 }
@@ -502,22 +496,22 @@ bool striequal(const char *a, const char *b)
   return (a == NULL && b == NULL) || (a && b && STRICMP(a, b) == 0);
 }
 
-// Avoid repeating the error message many times (they take 1 second each).
-// Did_outofmem_msg is reset when a character is read.
+/*
+ * Avoid repeating the error message many times (they take 1 second each).
+ * Did_outofmem_msg is reset when a character is read.
+ */
 void do_outofmem_msg(size_t size)
 {
-  if (did_outofmem_msg) {
-    return;
+  if (!did_outofmem_msg) {
+    // Don't hide this message
+    emsg_silent = 0;
+
+    /* Must come first to avoid coming back here when printing the error
+     * message fails, e.g. when setting v:errmsg. */
+    did_outofmem_msg = true;
+
+    semsg(_("E342: Out of memory!  (allocating %" PRIu64 " bytes)"), (uint64_t)size);
   }
-
-  // Don't hide this message
-  emsg_silent = 0;
-
-  // Must come first to avoid coming back here when printing the error
-  // message fails, e.g. when setting v:errmsg.
-  did_outofmem_msg = true;
-
-  semsg(_("E342: Out of memory!  (allocating %" PRIu64 " bytes)"), (uint64_t)size);
 }
 
 /// Writes time_t to "buf[8]".
@@ -530,124 +524,10 @@ void time_to_bytes(time_t time_, uint8_t buf[8])
   }
 }
 
-#define ARENA_BLOCK_SIZE 4096
-#define REUSE_MAX 4
-
-static struct consumed_blk *arena_reuse_blk;
-static size_t arena_reuse_blk_count = 0;
-
-static void arena_free_reuse_blks(void)
-{
-  while (arena_reuse_blk_count > 0) {
-    struct consumed_blk *blk = arena_reuse_blk;
-    arena_reuse_blk = arena_reuse_blk->prev;
-    xfree(blk);
-    arena_reuse_blk_count--;
-  }
-}
-
-/// Finnish the allocations in an arena.
-///
-/// This does not immediately free the memory, but leaves existing allocated
-/// objects valid, and returns an opaque ArenaMem handle, which can be used to
-/// free the allocations using `arena_mem_free`, when the objects allocated
-/// from the arena are not needed anymore.
-ArenaMem arena_finish(Arena *arena)
-{
-  struct consumed_blk *res = (struct consumed_blk *)arena->cur_blk;
-  *arena = (Arena)ARENA_EMPTY;
-  return res;
-}
-
-void alloc_block(Arena *arena)
-{
-  struct consumed_blk *prev_blk = (struct consumed_blk *)arena->cur_blk;
-  if (arena_reuse_blk_count > 0) {
-    arena->cur_blk = (char *)arena_reuse_blk;
-    arena_reuse_blk = arena_reuse_blk->prev;
-    arena_reuse_blk_count--;
-  } else {
-    arena_alloc_count++;
-    arena->cur_blk = xmalloc(ARENA_BLOCK_SIZE);
-  }
-  arena->pos = 0;
-  arena->size = ARENA_BLOCK_SIZE;
-  struct consumed_blk *blk = arena_alloc(arena, sizeof(struct consumed_blk), true);
-  blk->prev = prev_blk;
-}
-
-/// @param arena if NULL, do a global allocation. caller must then free the value!
-/// @param size if zero, will still return a non-null pointer, but not a unique one
-void *arena_alloc(Arena *arena, size_t size, bool align)
-{
-  if (!arena) {
-    return xmalloc(size);
-  }
-  if (align) {
-    arena->pos = (arena->pos + (ARENA_ALIGN - 1)) & ~(ARENA_ALIGN - 1);
-  }
-  if (arena->pos + size > arena->size || !arena->cur_blk) {
-    if (size > (ARENA_BLOCK_SIZE - sizeof(struct consumed_blk)) >> 1) {
-      // if allocation is too big, allocate a large block with the requested
-      // size, but still with block pointer head. We do this even for
-      // arena->size / 2, as there likely is space left for the next
-      // small allocation in the current block.
-      if (!arena->cur_blk) {
-        // to simplify free-list management, arena->cur_blk must
-        // always be a normal, ARENA_BLOCK_SIZE sized, block
-        alloc_block(arena);
-      }
-      arena_alloc_count++;
-      char *alloc = xmalloc(size + sizeof(struct consumed_blk));
-      struct consumed_blk *cur_blk = (struct consumed_blk *)arena->cur_blk;
-      struct consumed_blk *fix_blk = (struct consumed_blk *)alloc;
-      fix_blk->prev = cur_blk->prev;
-      cur_blk->prev = fix_blk;
-      return (alloc + sizeof(struct consumed_blk));
-    } else {
-      alloc_block(arena);
-    }
-  }
-
-  char *mem = arena->cur_blk + arena->pos;
-  arena->pos += size;
-  return mem;
-}
-
-void arena_mem_free(ArenaMem mem)
-{
-  struct consumed_blk *b = mem;
-  // peel of the first block, as it is guaranteed to be ARENA_BLOCK_SIZE,
-  // not a custom fix_blk
-  if (arena_reuse_blk_count < REUSE_MAX && b != NULL) {
-    struct consumed_blk *reuse_blk = b;
-    b = b->prev;
-    reuse_blk->prev = arena_reuse_blk;
-    arena_reuse_blk = reuse_blk;
-    arena_reuse_blk_count++;
-  }
-
-  while (b) {
-    struct consumed_blk *prev = b->prev;
-    xfree(b);
-    b = prev;
-  }
-}
-
-char *arena_memdupz(Arena *arena, const char *buf, size_t size)
-{
-  char *mem = arena_alloc(arena, size + 1, false);
-  memcpy(mem, buf, size);
-  mem[size] = NUL;
-  return mem;
-}
-
 #if defined(EXITFREE)
 
-# include "nvim/autocmd.h"
 # include "nvim/buffer.h"
 # include "nvim/charset.h"
-# include "nvim/cmdhist.h"
 # include "nvim/diff.h"
 # include "nvim/edit.h"
 # include "nvim/eval/typval.h"
@@ -655,9 +535,9 @@ char *arena_memdupz(Arena *arena, const char *buf, size_t size)
 # include "nvim/ex_docmd.h"
 # include "nvim/ex_getln.h"
 # include "nvim/file_search.h"
+# include "nvim/fileio.h"
 # include "nvim/fold.h"
 # include "nvim/getchar.h"
-# include "nvim/grid.h"
 # include "nvim/mark.h"
 # include "nvim/mbyte.h"
 # include "nvim/memline.h"
@@ -669,17 +549,20 @@ char *arena_memdupz(Arena *arena, const char *buf, size_t size)
 # include "nvim/path.h"
 # include "nvim/quickfix.h"
 # include "nvim/regexp.h"
+# include "nvim/screen.h"
 # include "nvim/search.h"
 # include "nvim/spell.h"
 # include "nvim/syntax.h"
 # include "nvim/tag.h"
 # include "nvim/window.h"
 
-// Free everything that we allocated.
-// Can be used to detect memory leaks, e.g., with ccmalloc.
-// NOTE: This is tricky!  Things are freed that functions depend on.  Don't be
-// surprised if Vim crashes...
-// Some things can't be freed, esp. things local to a library function.
+/*
+ * Free everything that we allocated.
+ * Can be used to detect memory leaks, e.g., with ccmalloc.
+ * NOTE: This is tricky!  Things are freed that functions depend on.  Don't be
+ * surprised if Vim crashes...
+ * Some things can't be freed, esp. things local to a library function.
+ */
 void free_all_mem(void)
 {
   buf_T *buf, *nextbuf;
@@ -714,13 +597,14 @@ void free_all_mem(void)
 
   // Clear menus.
   do_cmdline_cmd("aunmenu *");
-  do_cmdline_cmd("tlunmenu *");
   do_cmdline_cmd("menutranslate clear");
 
   // Clear mappings, abbreviations, breakpoints.
-  // NB: curbuf not used with local=false arg
-  map_clear_mode(curbuf, MAP_ALL_MODES, false, false);
-  map_clear_mode(curbuf, MAP_ALL_MODES, false, true);
+  do_cmdline_cmd("lmapclear");
+  do_cmdline_cmd("xmapclear");
+  do_cmdline_cmd("mapclear");
+  do_cmdline_cmd("mapclear!");
+  do_cmdline_cmd("abclear");
   do_cmdline_cmd("breakdel *");
   do_cmdline_cmd("profdel *");
   do_cmdline_cmd("set keymap=");
@@ -737,7 +621,6 @@ void free_all_mem(void)
   free_search_patterns();
   free_old_sub();
   free_last_insert();
-  free_insexpand_stuff();
   free_prev_shellcmd();
   free_regexp_stuff();
   free_tag_stuff();
@@ -822,11 +705,6 @@ void free_all_mem(void)
   decor_free_all_mem();
 
   nlua_free_all_mem();
-  ui_free_all_mem();
-  ui_comp_free_all_mem();
-
-  // should be last, in case earlier free functions deallocates arenas
-  arena_free_reuse_blks();
 }
 
 #endif

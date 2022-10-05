@@ -9,10 +9,10 @@
 #endif
 
 #include "nvim/ascii.h"
-#include "nvim/autocmd.h"
 #include "nvim/eval.h"
 #include "nvim/event/loop.h"
 #include "nvim/event/signal.h"
+#include "nvim/fileio.h"
 #include "nvim/globals.h"
 #include "nvim/log.h"
 #include "nvim/main.h"
@@ -165,7 +165,8 @@ static char *signal_name(int signum)
 // This function handles deadly signals.
 // It tries to preserve any swap files and exit properly.
 // (partly from Elvis).
-// NOTE: this is scheduled on the event loop, not called directly from a signal handler.
+// NOTE: Avoid unsafe functions, such as allocating memory, they can result in
+// a deadlock.
 static void deadly_signal(int signum)
   FUNC_ATTR_NORETURN
 {
@@ -173,7 +174,7 @@ static void deadly_signal(int signum)
   set_vim_var_nr(VV_DYING, 1);
   v_dying = 1;
 
-  ILOG("got signal %d (%s)", signum, signal_name(signum));
+  WLOG("got signal %d (%s)", signum, signal_name(signum));
 
   snprintf((char *)IObuff, sizeof(IObuff), "Vim: Caught deadly signal '%s'\r\n",
            signal_name(signum));

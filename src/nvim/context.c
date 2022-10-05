@@ -9,7 +9,6 @@
 #include "nvim/api/vimscript.h"
 #include "nvim/context.h"
 #include "nvim/eval/encode.h"
-#include "nvim/eval/userfunc.h"
 #include "nvim/ex_docmd.h"
 #include "nvim/option.h"
 #include "nvim/shada.h"
@@ -250,7 +249,7 @@ static inline void ctx_save_funcs(Context *ctx, bool scriptonly)
   ctx->funcs = (Array)ARRAY_DICT_INIT;
   Error err = ERROR_INIT;
 
-  HASHTAB_ITER(func_tbl_get(), hi, {
+  HASHTAB_ITER(&func_hashtab, hi, {
     const char_u *const name = hi->hi_key;
     bool islambda = (STRNCMP(name, "<lambda>", 8) == 0);
     bool isscript = (name[0] == K_SPECIAL);
@@ -345,7 +344,7 @@ Dictionary ctx_to_dict(Context *ctx)
   PUT(rv, "jumps", ARRAY_OBJ(sbuf_to_array(ctx->jumps)));
   PUT(rv, "bufs", ARRAY_OBJ(sbuf_to_array(ctx->bufs)));
   PUT(rv, "gvars", ARRAY_OBJ(sbuf_to_array(ctx->gvars)));
-  PUT(rv, "funcs", ARRAY_OBJ(copy_array(ctx->funcs, NULL)));
+  PUT(rv, "funcs", ARRAY_OBJ(copy_array(ctx->funcs)));
 
   return rv;
 }
@@ -381,7 +380,7 @@ int ctx_from_dict(Dictionary dict, Context *ctx)
       ctx->gvars = array_to_sbuf(item.value.data.array);
     } else if (strequal(item.key.data, "funcs")) {
       types |= kCtxFuncs;
-      ctx->funcs = copy_object(item.value, NULL).data.array;
+      ctx->funcs = copy_object(item.value).data.array;
     }
   }
 

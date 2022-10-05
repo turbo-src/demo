@@ -34,18 +34,6 @@ local function safe_read(filename, read_quantifier)
   return content
 end
 
----@private
---- Adds @p ilang to @p base_langs, only if @p ilang is different than @lang
----
----@return boolean true it lang == ilang
-local function add_included_lang(base_langs, lang, ilang)
-  if lang == ilang then
-    return true
-  end
-  table.insert(base_langs, ilang)
-  return false
-end
-
 --- Gets the list of files used to make up a query
 ---
 ---@param lang The language
@@ -59,9 +47,6 @@ function M.get_query_files(lang, query_name, is_included)
     return {}
   end
 
-  local base_query = nil
-  local extensions = {}
-
   local base_langs = {}
 
   -- Now get the base languages by looking at the first line of every file
@@ -70,61 +55,35 @@ function M.get_query_files(lang, query_name, is_included)
   --
   -- {language} ::= {lang} | ({lang})
   local MODELINE_FORMAT = '^;+%s*inherits%s*:?%s*([a-z_,()]+)%s*$'
-  local EXTENDS_FORMAT = '^;+%s*extends%s*$'
 
-  for _, filename in ipairs(lang_files) do
-    local file, err = io.open(filename, 'r')
-    if not file then
-      error(err)
-    end
+  for _, file in ipairs(lang_files) do
+    local modeline = safe_read(file, '*l')
 
-    local extension = false
-
-    for modeline in
-      function()
-        return file:read('*l')
-      end
-    do
-      if not vim.startswith(modeline, ';') then
-        break
-      end
-
+    if modeline then
       local langlist = modeline:match(MODELINE_FORMAT)
+
       if langlist then
         for _, incllang in ipairs(vim.split(langlist, ',', true)) do
           local is_optional = incllang:match('%(.*%)')
 
           if is_optional then
             if not is_included then
-              if add_included_lang(base_langs, lang, incllang:sub(2, #incllang - 1)) then
-                extension = true
-              end
+              table.insert(base_langs, incllang:sub(2, #incllang - 1))
             end
           else
-            if add_included_lang(base_langs, lang, incllang) then
-              extension = true
-            end
+            table.insert(base_langs, incllang)
           end
         end
-      elseif modeline:match(EXTENDS_FORMAT) then
-        extension = true
       end
     end
-
-    if extension then
-      table.insert(extensions, filename)
-    elseif base_query == nil then
-      base_query = filename
-    end
-    io.close(file)
   end
 
-  local query_files = { base_query }
+  local query_files = {}
   for _, base_lang in ipairs(base_langs) do
     local base_files = M.get_query_files(base_lang, query_name, true)
     vim.list_extend(query_files, base_files)
   end
-  vim.list_extend(query_files, extensions)
+  vim.list_extend(query_files, lang_files)
 
   return query_files
 end
@@ -181,9 +140,12 @@ function M.get_query(lang, query_name)
   end
 end
 
-local query_cache = vim.defaulttable(function()
-  return setmetatable({}, { __mode = 'v' })
-end)
+local query_cache = setmetatable({}, {
+  __index = function(tbl, key)
+    rawset(tbl, key, {})
+    return rawget(tbl, key)
+  end,
+})
 
 --- Parse {query} as a string. (If the query is in a file, the caller
 --- should read the contents into a string before calling).
@@ -219,14 +181,9 @@ end
 
 --- Gets the text corresponding to a given node
 ---
----@param node table The node
----@param source table The buffer or string from which the node is extracted
----@param opts table Optional parameters.
----          - concat: (boolean default true) Concatenate result in a string
-function M.get_node_text(node, source, opts)
-  opts = opts or {}
-  local concat = vim.F.if_nil(opts.concat, true)
-
+---@param node the node
+---@param source The buffer or string from which the node is extracted
+function M.get_node_text(node, source)
   local start_row, start_col, start_byte = node:start()
   local end_row, end_col, end_byte = node:end_()
 
@@ -253,7 +210,7 @@ function M.get_node_text(node, source, opts)
       end
     end
 
-    return concat and table.concat(lines, '\n') or lines
+    return table.concat(lines, '\n')
   elseif type(source) == 'string' then
     return source:sub(start_byte + 1, end_byte)
   end
@@ -264,9 +221,6 @@ end
 local predicate_handlers = {
   ['eq?'] = function(match, _, source, predicate)
     local node = match[predicate[2]]
-    if not node then
-      return true
-    end
     local node_text = M.get_node_text(node, source)
 
     local str
@@ -287,9 +241,6 @@ local predicate_handlers = {
 
   ['lua-match?'] = function(match, _, source, predicate)
     local node = match[predicate[2]]
-    if not node then
-      return true
-    end
     local regex = predicate[3]
     return string.find(M.get_node_text(node, source), regex)
   end,
@@ -314,9 +265,6 @@ local predicate_handlers = {
 
     return function(match, _, source, pred)
       local node = match[pred[2]]
-      if not node then
-        return true
-      end
       local regex = compiled_vim_regexes[pred[3]]
       return regex:match_str(M.get_node_text(node, source))
     end
@@ -324,9 +272,6 @@ local predicate_handlers = {
 
   ['contains?'] = function(match, _, source, predicate)
     local node = match[predicate[2]]
-    if not node then
-      return true
-    end
     local node_text = M.get_node_text(node, source)
 
     for i = 3, #predicate do
@@ -340,9 +285,6 @@ local predicate_handlers = {
 
   ['any-of?'] = function(match, _, source, predicate)
     local node = match[predicate[2]]
-    if not node then
-      return true
-    end
     local node_text = M.get_node_text(node, source)
 
     -- Since 'predicate' will not be used by callers of this function, use it
@@ -371,22 +313,20 @@ local directive_handlers = {
   ['set!'] = function(_, _, _, pred, metadata)
     if #pred == 4 then
       -- (#set! @capture "key" "value")
-      local _, capture_id, key, value = unpack(pred)
-      if not metadata[capture_id] then
-        metadata[capture_id] = {}
+      local capture = pred[2]
+      if not metadata[capture] then
+        metadata[capture] = {}
       end
-      metadata[capture_id][key] = value
+      metadata[capture][pred[3]] = pred[4]
     else
-      local _, key, value = unpack(pred)
       -- (#set! "key" "value")
-      metadata[key] = value
+      metadata[pred[2]] = pred[3]
     end
   end,
   -- Shifts the range of a node.
   -- Example: (#offset! @_node 0 1 0 -1)
   ['offset!'] = function(match, _, _, pred, metadata)
-    local capture_id = pred[2]
-    local offset_node = match[capture_id]
+    local offset_node = match[pred[2]]
     local range = { offset_node:range() }
     local start_row_offset = pred[3] or 0
     local start_col_offset = pred[4] or 0
@@ -400,10 +340,7 @@ local directive_handlers = {
 
     -- If this produces an invalid range, we just skip it.
     if range[1] < range[3] or (range[1] == range[3] and range[2] <= range[4]) then
-      if not metadata[capture_id] then
-        metadata[capture_id] = {}
-      end
-      metadata[capture_id].range = range
+      metadata.content = { range }
     end
   end,
 }
@@ -423,14 +360,9 @@ end
 
 --- Adds a new directive to be used in queries
 ---
---- Handlers can set match level data by setting directly on the
---- metadata object `metadata.key = value`, additionally, handlers
---- can set node level data by using the capture id on the
---- metadata table `metadata[capture_id].key = value`
----
 ---@param name the name of the directive, without leading #
 ---@param handler the handler function to be used
----      signature will be (match, pattern, bufnr, predicate, metadata)
+---      signature will be (match, pattern, bufnr, predicate)
 function M.add_directive(name, handler, force)
   if directive_handlers[name] and not force then
     error(string.format('Overriding %s', name))
@@ -439,7 +371,6 @@ function M.add_directive(name, handler, force)
   directive_handlers[name] = handler
 end
 
---- Lists the currently available directives to use in queries.
 ---@return The list of supported directives.
 function M.list_directives()
   return vim.tbl_keys(directive_handlers)

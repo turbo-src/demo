@@ -80,47 +80,11 @@ for i = 0, 31 do
 end
 
 local function escape(str)
-  return (
-    gsub(
-      gsub(gsub(str, '\\', '\\\\'), '(%c)%f[0-9]', longControlCharEscapes),
-      '%c',
-      shortControlCharEscapes
-    )
-  )
+  return (gsub(gsub(gsub(str, '\\', '\\\\'), '(%c)%f[0-9]', longControlCharEscapes), '%c', shortControlCharEscapes))
 end
 
--- List of lua keywords
-local luaKeywords = {
-  ['and'] = true,
-  ['break'] = true,
-  ['do'] = true,
-  ['else'] = true,
-  ['elseif'] = true,
-  ['end'] = true,
-  ['false'] = true,
-  ['for'] = true,
-  ['function'] = true,
-  ['goto'] = true,
-  ['if'] = true,
-  ['in'] = true,
-  ['local'] = true,
-  ['nil'] = true,
-  ['not'] = true,
-  ['or'] = true,
-  ['repeat'] = true,
-  ['return'] = true,
-  ['then'] = true,
-  ['true'] = true,
-  ['until'] = true,
-  ['while'] = true,
-}
-
 local function isIdentifier(str)
-  return type(str) == 'string'
-    -- identifier must start with a letter and underscore, and be followed by letters, numbers, and underscores
-    and not not str:match('^[_%a][_%a%d]*$')
-    -- lua keywords are not valid identifiers
-    and not luaKeywords[str]
+  return type(str) == 'string' and not not str:match('^[_%a][_%a%d]*$')
 end
 
 local flr = math.floor
@@ -217,13 +181,11 @@ local function processRecursive(process, item, path, visited)
     for k, v in rawpairs(processed) do
       processedKey = processRecursive(process, k, makePath(path, k, inspect.KEY), visited)
       if processedKey ~= nil then
-        processedCopy[processedKey] =
-          processRecursive(process, v, makePath(path, processedKey), visited)
+        processedCopy[processedKey] = processRecursive(process, v, makePath(path, processedKey), visited)
       end
     end
 
-    local mt =
-      processRecursive(process, getmetatable(processed), makePath(path, inspect.METATABLE), visited)
+    local mt = processRecursive(process, getmetatable(processed), makePath(path, inspect.METATABLE), visited)
     if type(mt) ~= 'table' then
       mt = nil
     end

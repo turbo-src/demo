@@ -6,7 +6,6 @@
 #include "nvim/api/private/defs.h"
 #include "nvim/api/private/helpers.h"
 #include "nvim/decoration_provider.h"
-#include "nvim/drawscreen.h"
 #include "nvim/highlight.h"
 #include "nvim/highlight_defs.h"
 #include "nvim/highlight_group.h"
@@ -14,7 +13,8 @@
 #include "nvim/map.h"
 #include "nvim/message.h"
 #include "nvim/option.h"
-#include "nvim/popupmenu.h"
+#include "nvim/popupmnu.h"
+#include "nvim/screen.h"
 #include "nvim/ui.h"
 #include "nvim/vim.h"
 
@@ -32,9 +32,7 @@ static Map(int, int) blend_attr_entries = MAP_INIT;
 static Map(int, int) blendthrough_attr_entries = MAP_INIT;
 
 /// highlight entries private to a namespace
-static Map(ColorKey, ColorItem) ns_hls;
-typedef int NSHlAttr[HLF_COUNT + 1];
-static PMap(handle_T) ns_hl_attr;
+static Map(ColorKey, ColorItem) ns_hl;
 
 void highlight_init(void)
 {
@@ -149,14 +147,14 @@ int hl_get_syn_attr(int ns_id, int idx, HlAttrs at_en)
 
 void ns_hl_def(NS ns_id, int hl_id, HlAttrs attrs, int link_id, Dict(highlight) *dict)
 {
+  if ((attrs.rgb_ae_attr & HL_DEFAULT)
+      && map_has(ColorKey, ColorItem)(&ns_hl, ColorKey(ns_id, hl_id))) {
+    return;
+  }
   if (ns_id == 0) {
     assert(dict);
     // set in global (':highlight') namespace
     set_hl_group(hl_id, attrs, dict, link_id);
-    return;
-  }
-  if ((attrs.rgb_ae_attr & HL_DEFAULT)
-      && map_has(ColorKey, ColorItem)(&ns_hls, ColorKey(ns_id, hl_id))) {
     return;
   }
   DecorProvider *p = get_decor_provider(ns_id, true);
@@ -164,40 +162,31 @@ void ns_hl_def(NS ns_id, int hl_id, HlAttrs attrs, int link_id, Dict(highlight) 
   ColorItem it = { .attr_id = attr_id,
                    .link_id = link_id,
                    .version = p->hl_valid,
-                   .is_default = (attrs.rgb_ae_attr & HL_DEFAULT),
-                   .link_global = (attrs.rgb_ae_attr & HL_GLOBAL) };
-  map_put(ColorKey, ColorItem)(&ns_hls, ColorKey(ns_id, hl_id), it);
-  p->hl_cached = false;
+                   .is_default = (attrs.rgb_ae_attr & HL_DEFAULT) };
+  map_put(ColorKey, ColorItem)(&ns_hl, ColorKey(ns_id, hl_id), it);
 }
 
-int ns_get_hl(NS *ns_hl, int hl_id, bool link, bool nodefault)
+int ns_get_hl(NS ns_id, int hl_id, bool link, bool nodefault)
 {
   static int recursive = 0;
 
-  if (*ns_hl == 0) {
-    // ns=0 (the default namespace) does not have a provider so stop here
-    return -1;
-  }
-
-  if (*ns_hl < 0) {
+  if (ns_id < 0) {
     if (ns_hl_active <= 0) {
       return -1;
     }
-    *ns_hl = ns_hl_active;
+    ns_id = ns_hl_active;
   }
 
-  int ns_id = *ns_hl;
-
   DecorProvider *p = get_decor_provider(ns_id, true);
-  ColorItem it = map_get(ColorKey, ColorItem)(&ns_hls, ColorKey(ns_id, hl_id));
+  ColorItem it = map_get(ColorKey, ColorItem)(&ns_hl, ColorKey(ns_id, hl_id));
   // TODO(bfredl): map_ref true even this?
-  bool valid_item = it.version >= p->hl_valid;
+  bool valid_cache = it.version >= p->hl_valid;
 
-  if (!valid_item && p->hl_def != LUA_NOREF && !recursive) {
-    MAXSIZE_TEMP_ARRAY(args, 3);
-    ADD_C(args, INTEGER_OBJ((Integer)ns_id));
-    ADD_C(args, STRING_OBJ(cstr_to_string((char *)syn_id2name(hl_id))));
-    ADD_C(args, BOOLEAN_OBJ(link));
+  if (!valid_cache && p->hl_def != LUA_NOREF && !recursive) {
+    FIXED_TEMP_ARRAY(args, 3);
+    args.items[0] = INTEGER_OBJ((Integer)ns_id);
+    args.items[1] = STRING_OBJ(cstr_to_string((char *)syn_id2name(hl_id)));
+    args.items[2] = BOOLEAN_OBJ(link);
     // TODO(bfredl): preload the "global" attr dict?
 
     Error err = ERROR_INIT;
@@ -223,79 +212,47 @@ int ns_get_hl(NS *ns_hl, int hl_id, bool link, bool nodefault)
       }
     }
 
-    it.attr_id = fallback ? -1 : hl_get_syn_attr(ns_id, hl_id, attrs);
+    it.attr_id = fallback ? -1 : hl_get_syn_attr((int)ns_id, hl_id, attrs);
     it.version = p->hl_valid - tmp;
     it.is_default = attrs.rgb_ae_attr & HL_DEFAULT;
-    it.link_global = attrs.rgb_ae_attr & HL_GLOBAL;
-    map_put(ColorKey, ColorItem)(&ns_hls, ColorKey(ns_id, hl_id), it);
-    valid_item = true;
+    map_put(ColorKey, ColorItem)(&ns_hl, ColorKey(ns_id, hl_id), it);
   }
 
-  if ((it.is_default && nodefault) || !valid_item) {
+  if (it.is_default && nodefault) {
     return -1;
   }
 
   if (link) {
-    if (it.attr_id >= 0) {
-      return 0;
-    } else {
-      if (it.link_global) {
-        *ns_hl = 0;
-      }
-      return it.link_id;
-    }
+    return it.attr_id >= 0 ? 0 : it.link_id;
   } else {
     return it.attr_id;
   }
 }
 
-bool hl_check_ns(void)
-{
-  int ns = 0;
-  if (ns_hl_fast > 0) {
-    ns = ns_hl_fast;
-  } else if (ns_hl_win >= 0) {
-    ns = ns_hl_win;
-  } else {
-    ns = ns_hl_global;
-  }
-  if (ns_hl_active == ns) {
-    return false;
-  }
-
-  ns_hl_active = ns;
-  hl_attr_active = highlight_attr;
-  if (ns > 0) {
-    update_ns_hl(ns);
-    NSHlAttr *hl_def = (NSHlAttr *)pmap_get(handle_T)(&ns_hl_attr, ns);
-    if (hl_def) {
-      hl_attr_active = *hl_def;
-    }
-  }
-  need_highlight_changed = true;
-  return true;
-}
-
-/// prepare for drawing window `wp` or global elements if NULL
-///
-/// Note: pum should be drawn in the context of the current window!
 bool win_check_ns_hl(win_T *wp)
 {
-  ns_hl_win = wp ? wp->w_ns_hl : -1;
-  return hl_check_ns();
+  if (ns_hl_changed) {
+    highlight_changed();
+    if (wp) {
+      update_window_hl(wp, true);
+    }
+    ns_hl_changed = false;
+    return true;
+  }
+  return false;
 }
 
 /// Get attribute code for a builtin highlight group.
 ///
 /// The final syntax group could be modified by hi-link or 'winhighlight'.
-int hl_get_ui_attr(int ns_id, int idx, int final_id, bool optional)
+int hl_get_ui_attr(int idx, int final_id, bool optional)
 {
   HlAttrs attrs = HLATTRS_INIT;
   bool available = false;
 
   if (final_id > 0) {
-    int syn_attr = syn_ns_id2attr(ns_id, final_id, optional);
-    if (syn_attr > 0) {
+    int syn_attr = syn_id2attr(final_id);
+    if (syn_attr != 0) {
       attrs = syn_attr2entry(syn_attr);
       available = true;
     }
@@ -308,6 +265,8 @@ int hl_get_ui_attr(int ns_id, int idx, int final_id, bool optional)
     if (pum_drawn()) {
       must_redraw_pum = true;
     }
+  } else if (idx == HLF_MSG) {
+    msg_grid.blending = attrs.hl_blend > -1;
   }
 
   if (optional && !available) {
@@ -319,21 +278,6 @@ int hl_get_ui_attr(int ns_id, int idx, int final_id, bool optional)
 
 void update_window_hl(win_T *wp, bool invalid)
 {
-  int ns_id = wp->w_ns_hl;
-
-  update_ns_hl(ns_id);
-  if (ns_id != wp->w_ns_hl_active || wp->w_ns_hl_attr == NULL) {
-    wp->w_ns_hl_active = ns_id;
-
-    wp->w_ns_hl_attr = *(NSHlAttr *)pmap_get(handle_T)(&ns_hl_attr, ns_id);
-    if (!wp->w_ns_hl_attr) {
-      // No specific highlights, use the defaults.
-      wp->w_ns_hl_attr = highlight_attr;
-    }
-  }
-
-  int *hl_def = wp->w_ns_hl_attr;
-
   if (!wp->w_hl_needs_update && !invalid) {
     return;
   }
@@ -341,15 +285,32 @@ void update_window_hl(win_T *wp, bool invalid)
 
   // If a floating window is blending it always have a named
   // wp->w_hl_attr_normal group. HL_ATTR(HLF_NFLOAT) is always named.
+  bool has_blend = wp->w_floating && wp->w_p_winbl != 0;
 
   // determine window specific background set in 'winhighlight'
   bool float_win = wp->w_floating && !wp->w_float_config.external;
-  if (float_win && hl_def[HLF_NFLOAT] != 0) {
-    wp->w_hl_attr_normal = hl_def[HLF_NFLOAT];
-  } else if (hl_def[HLF_COUNT] > 0) {
-    wp->w_hl_attr_normal = hl_def[HLF_COUNT];
+  if (wp != curwin && wp->w_hl_ids[HLF_INACTIVE] != 0) {
+    wp->w_hl_attr_normal = hl_get_ui_attr(HLF_INACTIVE,
+                                          wp->w_hl_ids[HLF_INACTIVE],
+                                          !has_blend);
+  } else if (float_win && wp->w_hl_ids[HLF_NFLOAT] != 0) {
+    wp->w_hl_attr_normal = hl_get_ui_attr(HLF_NFLOAT,
+                                          wp->w_hl_ids[HLF_NFLOAT], !has_blend);
+  } else if (wp->w_hl_id_normal != 0) {
+    wp->w_hl_attr_normal = hl_get_ui_attr(-1, wp->w_hl_id_normal, !has_blend);
   } else {
     wp->w_hl_attr_normal = float_win ? HL_ATTR(HLF_NFLOAT) : 0;
+  }
+
+  // NOOOO! You cannot just pretend that "Normal" is just like any other
+  // syntax group! It needs at least 10 layers of special casing! Noooooo!
+  //
+  // haha, theme engine go brrr
+  int normality = syn_check_group(S_LEN("Normal"));
+  int ns_attr = ns_get_hl(-1, normality, false, false);
+  if (ns_attr > 0) {
+    // TODO(bfredl): hantera NormalNC and so on
+    wp->w_hl_attr_normal = ns_attr;
   }
 
   // if blend= attribute is not set, 'winblend' value overrides it.
@@ -361,13 +322,28 @@ void update_window_hl(win_T *wp, bool invalid)
     }
   }
 
+  if (wp != curwin && wp->w_hl_ids[HLF_INACTIVE] == 0) {
+    wp->w_hl_attr_normal = hl_combine_attr(HL_ATTR(HLF_INACTIVE),
+                                           wp->w_hl_attr_normal);
+  }
+
+  for (int hlf = 0; hlf < HLF_COUNT; hlf++) {
+    int attr;
+    if (wp->w_hl_ids[hlf] != 0) {
+      attr = hl_get_ui_attr(hlf, wp->w_hl_ids[hlf], false);
+    } else {
+      attr = HL_ATTR(hlf);
+    }
+    wp->w_hl_attrs[hlf] = attr;
+  }
+
   wp->w_float_config.shadow = false;
   if (wp->w_floating && wp->w_float_config.border) {
     for (int i = 0; i < 8; i++) {
-      int attr = hl_def[HLF_BORDER];
+      int attr = wp->w_hl_attrs[HLF_BORDER];
       if (wp->w_float_config.border_hl_ids[i]) {
-        attr = hl_get_ui_attr(ns_id, HLF_BORDER,
-                              wp->w_float_config.border_hl_ids[i], false);
+        attr = hl_get_ui_attr(HLF_BORDER, wp->w_float_config.border_hl_ids[i],
+                              false);
         HlAttrs a = syn_attr2entry(attr);
         if (a.hl_blend) {
           wp->w_float_config.shadow = true;
@@ -379,65 +355,6 @@ void update_window_hl(win_T *wp, bool invalid)
 
   // shadow might cause blending
   check_blending(wp);
-
-  // TODO(bfredl): this a bit ad-hoc. move it from highlight ns logic to 'winhl'
-  // implementation?
-  if (hl_def[HLF_INACTIVE] == 0) {
-    wp->w_hl_attr_normalnc = hl_combine_attr(HL_ATTR(HLF_INACTIVE),
-                                             wp->w_hl_attr_normal);
-  } else {
-    wp->w_hl_attr_normalnc = hl_def[HLF_INACTIVE];
-  }
-}
-
-void update_ns_hl(int ns_id)
-{
-  if (ns_id <= 0) {
-    return;
-  }
-  DecorProvider *p = get_decor_provider(ns_id, true);
-  if (p->hl_cached) {
-    return;
-  }
-
-  NSHlAttr **alloc = (NSHlAttr **)pmap_ref(handle_T)(&ns_hl_attr, ns_id, true);
-  if (*alloc == NULL) {
-    *alloc = xmalloc(sizeof(**alloc));
-  }
-  int *hl_attrs = **alloc;
-
-  for (int hlf = 0; hlf < HLF_COUNT; hlf++) {
-    int id = syn_check_group(hlf_names[hlf], strlen(hlf_names[hlf]));
-    bool optional = (hlf == HLF_INACTIVE || hlf == HLF_NFLOAT);
-    hl_attrs[hlf] = hl_get_ui_attr(ns_id, hlf, id, optional);
-  }
-
-  // NOOOO! You cannot just pretend that "Normal" is just like any other
-  // syntax group! It needs at least 10 layers of special casing! Noooooo!
-  //
-  // haha, tema engine go brrr
-  int normality = syn_check_group(S_LEN("Normal"));
-  hl_attrs[HLF_COUNT] = hl_get_ui_attr(ns_id, -1, normality, true);
-
-  // hl_get_ui_attr might have invalidated the decor provider
-  p = get_decor_provider(ns_id, true);
-  p->hl_cached = true;
-}
-
-int win_bg_attr(win_T *wp)
-{
-  if (ns_hl_fast < 0) {
-    int local = (wp == curwin) ? wp->w_hl_attr_normal : wp->w_hl_attr_normalnc;
-    if (local) {
-      return local;
-    }
-  }
-
-  if (wp == curwin || hl_attr_active[HLF_INACTIVE] == 0) {
-    return hl_attr_active[HLF_COUNT];
-  } else {
-    return hl_attr_active[HLF_INACTIVE];
-  }
 }
 
 /// Gets HL_UNDERLINE highlight.
@@ -486,7 +403,7 @@ void clear_hl_tables(bool reinit)
     map_destroy(int, int)(&combine_attr_entries);
     map_destroy(int, int)(&blend_attr_entries);
     map_destroy(int, int)(&blendthrough_attr_entries);
-    map_destroy(ColorKey, ColorItem)(&ns_hls);
+    map_destroy(ColorKey, ColorItem)(&ns_hl);
   }
 }
 
@@ -520,52 +437,52 @@ int hl_combine_attr(int char_attr, int prim_attr)
   }
 
   HlAttrs char_aep = syn_attr2entry(char_attr);
-  HlAttrs prim_aep = syn_attr2entry(prim_attr);
+  HlAttrs spell_aep = syn_attr2entry(prim_attr);
 
   // start with low-priority attribute, and override colors if present below.
   HlAttrs new_en = char_aep;
 
-  if (prim_aep.cterm_ae_attr & HL_NOCOMBINE) {
-    new_en.cterm_ae_attr = prim_aep.cterm_ae_attr;
+  if (spell_aep.cterm_ae_attr & HL_NOCOMBINE) {
+    new_en.cterm_ae_attr = spell_aep.cterm_ae_attr;
   } else {
-    new_en.cterm_ae_attr |= prim_aep.cterm_ae_attr;
+    new_en.cterm_ae_attr |= spell_aep.cterm_ae_attr;
   }
-  if (prim_aep.rgb_ae_attr & HL_NOCOMBINE) {
-    new_en.rgb_ae_attr = prim_aep.rgb_ae_attr;
+  if (spell_aep.rgb_ae_attr & HL_NOCOMBINE) {
+    new_en.rgb_ae_attr = spell_aep.rgb_ae_attr;
   } else {
-    new_en.rgb_ae_attr |= prim_aep.rgb_ae_attr;
+    new_en.rgb_ae_attr |= spell_aep.rgb_ae_attr;
   }
 
-  if (prim_aep.cterm_fg_color > 0) {
-    new_en.cterm_fg_color = prim_aep.cterm_fg_color;
+  if (spell_aep.cterm_fg_color > 0) {
+    new_en.cterm_fg_color = spell_aep.cterm_fg_color;
     new_en.rgb_ae_attr &= ((~HL_FG_INDEXED)
-                           | (prim_aep.rgb_ae_attr & HL_FG_INDEXED));
+                           | (spell_aep.rgb_ae_attr & HL_FG_INDEXED));
   }
 
-  if (prim_aep.cterm_bg_color > 0) {
-    new_en.cterm_bg_color = prim_aep.cterm_bg_color;
+  if (spell_aep.cterm_bg_color > 0) {
+    new_en.cterm_bg_color = spell_aep.cterm_bg_color;
     new_en.rgb_ae_attr &= ((~HL_BG_INDEXED)
-                           | (prim_aep.rgb_ae_attr & HL_BG_INDEXED));
+                           | (spell_aep.rgb_ae_attr & HL_BG_INDEXED));
   }
 
-  if (prim_aep.rgb_fg_color >= 0) {
-    new_en.rgb_fg_color = prim_aep.rgb_fg_color;
+  if (spell_aep.rgb_fg_color >= 0) {
+    new_en.rgb_fg_color = spell_aep.rgb_fg_color;
     new_en.rgb_ae_attr &= ((~HL_FG_INDEXED)
-                           | (prim_aep.rgb_ae_attr & HL_FG_INDEXED));
+                           | (spell_aep.rgb_ae_attr & HL_FG_INDEXED));
   }
 
-  if (prim_aep.rgb_bg_color >= 0) {
-    new_en.rgb_bg_color = prim_aep.rgb_bg_color;
+  if (spell_aep.rgb_bg_color >= 0) {
+    new_en.rgb_bg_color = spell_aep.rgb_bg_color;
     new_en.rgb_ae_attr &= ((~HL_BG_INDEXED)
-                           | (prim_aep.rgb_ae_attr & HL_BG_INDEXED));
+                           | (spell_aep.rgb_ae_attr & HL_BG_INDEXED));
   }
 
-  if (prim_aep.rgb_sp_color >= 0) {
-    new_en.rgb_sp_color = prim_aep.rgb_sp_color;
+  if (spell_aep.rgb_sp_color >= 0) {
+    new_en.rgb_sp_color = spell_aep.rgb_sp_color;
   }
 
-  if (prim_aep.hl_blend >= 0) {
-    new_en.hl_blend = prim_aep.hl_blend;
+  if (spell_aep.hl_blend >= 0) {
+    new_en.hl_blend = spell_aep.hl_blend;
   }
 
   id = get_attr_entry((HlEntry){ .attr = new_en, .kind = kHlCombine,
@@ -729,7 +646,7 @@ static int hl_cterm2rgb_color(int nr)
     0x08, 0x12, 0x1C, 0x26, 0x30, 0x3A, 0x44, 0x4E, 0x58, 0x62, 0x6C, 0x76,
     0x80, 0x8A, 0x94, 0x9E, 0xA8, 0xB2, 0xBC, 0xC6, 0xD0, 0xDA, 0xE4, 0xEE
   };
-  static uint8_t ansi_table[16][4] = {
+  static char_u ansi_table[16][4] = {
     //  R    G    B   idx
     {   0,   0,   0,  1 },  // black
     { 224,   0,   0,  2 },  // dark red
@@ -788,7 +705,7 @@ HlAttrs syn_attr2entry(int attr)
 }
 
 /// Gets highlight description for id `attr_id` as a map.
-Dictionary hl_get_attr_by_id(Integer attr_id, Boolean rgb, Arena *arena, Error *err)
+Dictionary hl_get_attr_by_id(Integer attr_id, Boolean rgb, Error *err)
 {
   Dictionary dic = ARRAY_DICT_INIT;
 
@@ -801,101 +718,94 @@ Dictionary hl_get_attr_by_id(Integer attr_id, Boolean rgb, Arena *arena, Error *
                   "Invalid attribute id: %" PRId64, attr_id);
     return dic;
   }
-  Dictionary retval = arena_dict(arena, HLATTRS_DICT_SIZE);
-  hlattrs2dict(&retval, syn_attr2entry((int)attr_id), rgb);
-  return retval;
+
+  return hlattrs2dict(syn_attr2entry((int)attr_id), rgb);
 }
 
 /// Converts an HlAttrs into Dictionary
 ///
-/// @param[in/out] hl Dictionary with pre-allocated space for HLATTRS_DICT_SIZE elements
 /// @param[in] aep data to convert
 /// @param use_rgb use 'gui*' settings if true, else resorts to 'cterm*'
-void hlattrs2dict(Dictionary *dict, HlAttrs ae, bool use_rgb)
+Dictionary hlattrs2dict(HlAttrs ae, bool use_rgb)
 {
-  assert(dict->capacity >= HLATTRS_DICT_SIZE);  // at most 16 items
-  Dictionary hl = *dict;
+  Dictionary hl = ARRAY_DICT_INIT;
   int mask  = use_rgb ? ae.rgb_ae_attr : ae.cterm_ae_attr;
 
   if (mask & HL_BOLD) {
-    PUT_C(hl, "bold", BOOLEAN_OBJ(true));
+    PUT(hl, "bold", BOOLEAN_OBJ(true));
   }
 
   if (mask & HL_STANDOUT) {
-    PUT_C(hl, "standout", BOOLEAN_OBJ(true));
+    PUT(hl, "standout", BOOLEAN_OBJ(true));
   }
 
   if (mask & HL_UNDERLINE) {
-    PUT_C(hl, "underline", BOOLEAN_OBJ(true));
+    PUT(hl, "underline", BOOLEAN_OBJ(true));
+  }
+
+  if (mask & HL_UNDERLINELINE) {
+    PUT(hl, "underlineline", BOOLEAN_OBJ(true));
   }
 
   if (mask & HL_UNDERCURL) {
-    PUT_C(hl, "undercurl", BOOLEAN_OBJ(true));
+    PUT(hl, "undercurl", BOOLEAN_OBJ(true));
   }
 
-  if (mask & HL_UNDERDOUBLE) {
-    PUT_C(hl, "underdouble", BOOLEAN_OBJ(true));
+  if (mask & HL_UNDERDOT) {
+    PUT(hl, "underdot", BOOLEAN_OBJ(true));
   }
 
-  if (mask & HL_UNDERDOTTED) {
-    PUT_C(hl, "underdotted", BOOLEAN_OBJ(true));
-  }
-
-  if (mask & HL_UNDERDASHED) {
-    PUT_C(hl, "underdashed", BOOLEAN_OBJ(true));
+  if (mask & HL_UNDERDASH) {
+    PUT(hl, "underdash", BOOLEAN_OBJ(true));
   }
 
   if (mask & HL_ITALIC) {
-    PUT_C(hl, "italic", BOOLEAN_OBJ(true));
+    PUT(hl, "italic", BOOLEAN_OBJ(true));
   }
 
   if (mask & HL_INVERSE) {
-    PUT_C(hl, "reverse", BOOLEAN_OBJ(true));
+    PUT(hl, "reverse", BOOLEAN_OBJ(true));
   }
 
   if (mask & HL_STRIKETHROUGH) {
-    PUT_C(hl, "strikethrough", BOOLEAN_OBJ(true));
-  }
-
-  if (mask & HL_NOCOMBINE) {
-    PUT_C(hl, "nocombine", BOOLEAN_OBJ(true));
+    PUT(hl, "strikethrough", BOOLEAN_OBJ(true));
   }
 
   if (use_rgb) {
     if (mask & HL_FG_INDEXED) {
-      PUT_C(hl, "fg_indexed", BOOLEAN_OBJ(true));
+      PUT(hl, "fg_indexed", BOOLEAN_OBJ(true));
     }
 
     if (mask & HL_BG_INDEXED) {
-      PUT_C(hl, "bg_indexed", BOOLEAN_OBJ(true));
+      PUT(hl, "bg_indexed", BOOLEAN_OBJ(true));
     }
 
     if (ae.rgb_fg_color != -1) {
-      PUT_C(hl, "foreground", INTEGER_OBJ(ae.rgb_fg_color));
+      PUT(hl, "foreground", INTEGER_OBJ(ae.rgb_fg_color));
     }
 
     if (ae.rgb_bg_color != -1) {
-      PUT_C(hl, "background", INTEGER_OBJ(ae.rgb_bg_color));
+      PUT(hl, "background", INTEGER_OBJ(ae.rgb_bg_color));
     }
 
     if (ae.rgb_sp_color != -1) {
-      PUT_C(hl, "special", INTEGER_OBJ(ae.rgb_sp_color));
+      PUT(hl, "special", INTEGER_OBJ(ae.rgb_sp_color));
     }
   } else {
-    if (ae.cterm_fg_color != 0) {
-      PUT_C(hl, "foreground", INTEGER_OBJ(ae.cterm_fg_color - 1));
+    if (cterm_normal_fg_color != ae.cterm_fg_color && ae.cterm_fg_color != 0) {
+      PUT(hl, "foreground", INTEGER_OBJ(ae.cterm_fg_color - 1));
     }
 
-    if (ae.cterm_bg_color != 0) {
-      PUT_C(hl, "background", INTEGER_OBJ(ae.cterm_bg_color - 1));
+    if (cterm_normal_bg_color != ae.cterm_bg_color && ae.cterm_bg_color != 0) {
+      PUT(hl, "background", INTEGER_OBJ(ae.cterm_bg_color - 1));
     }
   }
 
   if (ae.hl_blend > -1) {
-    PUT_C(hl, "blend", INTEGER_OBJ(ae.hl_blend));
+    PUT(hl, "blend", INTEGER_OBJ(ae.hl_blend));
   }
 
-  *dict = hl;
+  return hl;
 }
 
 HlAttrs dict2hlattrs(Dict(highlight) *dict, bool use_rgb, int *link_id, Error *err)
@@ -915,15 +825,16 @@ HlAttrs dict2hlattrs(Dict(highlight) *dict, bool use_rgb, int *link_id, Error *e
   CHECK_FLAG(dict, mask, bold, , HL_BOLD);
   CHECK_FLAG(dict, mask, standout, , HL_STANDOUT);
   CHECK_FLAG(dict, mask, underline, , HL_UNDERLINE);
+  CHECK_FLAG(dict, mask, underlineline, , HL_UNDERLINELINE);
   CHECK_FLAG(dict, mask, undercurl, , HL_UNDERCURL);
-  CHECK_FLAG(dict, mask, underdouble, , HL_UNDERDOUBLE);
-  CHECK_FLAG(dict, mask, underdotted, , HL_UNDERDOTTED);
-  CHECK_FLAG(dict, mask, underdashed, , HL_UNDERDASHED);
+  CHECK_FLAG(dict, mask, underdot, , HL_UNDERDOT);
+  CHECK_FLAG(dict, mask, underdash, , HL_UNDERDASH);
   CHECK_FLAG(dict, mask, italic, , HL_ITALIC);
   CHECK_FLAG(dict, mask, reverse, , HL_INVERSE);
   CHECK_FLAG(dict, mask, strikethrough, , HL_STRIKETHROUGH);
   CHECK_FLAG(dict, mask, nocombine, , HL_NOCOMBINE);
   CHECK_FLAG(dict, mask, default, _, HL_DEFAULT);
+  CHECK_FLAG(dict, mask, global, , HL_GLOBAL);
 
   if (HAS_KEY(dict->fg)) {
     fg = object_to_color(dict->fg, "fg", true, err);
@@ -966,21 +877,14 @@ HlAttrs dict2hlattrs(Dict(highlight) *dict, bool use_rgb, int *link_id, Error *e
     return hlattrs;
   }
 
-  if (HAS_KEY(dict->link) || HAS_KEY(dict->global_link)) {
+  if (HAS_KEY(dict->link)) {
     if (link_id) {
-      if (HAS_KEY(dict->global_link)) {
-        *link_id = object_to_hl_id(dict->global_link, "link", err);
-        mask |= HL_GLOBAL;
-      } else {
-        *link_id = object_to_hl_id(dict->link, "link", err);
-      }
-
+      *link_id = object_to_hl_id(dict->link, "link", err);
       if (ERROR_SET(err)) {
         return hlattrs;
       }
     } else {
-      api_set_error(err, kErrorTypeValidation, "Invalid Key: '%s'",
-                    HAS_KEY(dict->global_link) ? "global_link" : "link");
+      api_set_error(err, kErrorTypeValidation, "Invalid Key: 'link'");
     }
   }
 
@@ -1038,9 +942,9 @@ HlAttrs dict2hlattrs(Dict(highlight) *dict, bool use_rgb, int *link_id, Error *e
     hlattrs.cterm_fg_color = ctermfg == -1 ? 0 : ctermfg + 1;
     hlattrs.cterm_ae_attr = cterm_mask;
   } else {
-    hlattrs.cterm_bg_color = ctermbg == -1 ? 0 : ctermbg + 1;
-    hlattrs.cterm_fg_color = ctermfg == -1 ? 0 : ctermfg + 1;
     hlattrs.cterm_ae_attr = cterm_mask;
+    hlattrs.cterm_bg_color = bg == -1 ? 0 : bg + 1;
+    hlattrs.cterm_fg_color = fg == -1 ? 0 : fg + 1;
   }
 
   return hlattrs;
@@ -1058,8 +962,7 @@ int object_to_color(Object val, char *key, bool rgb, Error *err)
     }
     int color;
     if (rgb) {
-      int dummy;
-      color = name_to_color(str.data, &dummy);
+      color = name_to_color(str.data);
     } else {
       color = name_to_ctermcolor(str.data);
     }
@@ -1075,7 +978,6 @@ int object_to_color(Object val, char *key, bool rgb, Error *err)
 
 Array hl_inspect(int attr)
 {
-  // TODO(bfredl): use arena allocation
   Array ret = ARRAY_DICT_INIT;
   if (hlstate_active) {
     hl_inspect_impl(&ret, attr);
