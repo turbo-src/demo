@@ -42,6 +42,8 @@ Features
 
 See [`:help nvim-features`][nvim-features] for the full list!
 
+Demo
+
 Install from package
 --------------------
 
