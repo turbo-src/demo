@@ -98,7 +98,7 @@ Project layout
 
 License
 -------
-
+pr6
 Neovim contributions since [b17d96][license-commit] are licensed under the
 Apache 2.0 license, except for contributions copied from Vim (identified by the
 `vim-patch` token). See LICENSE for details.
