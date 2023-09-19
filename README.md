@@ -44,7 +44,7 @@ See [`:help nvim-features`][nvim-features] for the full list!
 
 Install from package
 --------------------
-
+p4
 Pre-built packages for Windows, macOS, and Linux are found on the
 [Releases](https://github.com/neovim/neovim/releases/) page.
 
