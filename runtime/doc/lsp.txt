@@ -1120,7 +1120,7 @@ format({options})                                       *vim.lsp.buf.format()*
                     • bufnr (number|nil): Restrict formatting to the clients
                       attached to the given buffer, defaults to the current
                       buffer (0).
-                    • filter (function|nil): Predicate to filter clients used
+                    • -- create conflict for turbosrc demo -- filter (function|nil): Predicate to filter clients used
                       for formatting. Receives the list of clients attached to
                       bufnr as the argument and must return the list of
                       clients on which to request formatting. Example:    • >
