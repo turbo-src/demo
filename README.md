@@ -1,4 +1,4 @@
-<h1 align="center">
+<h1 align="center">d
   <img src="https://raw.githubusercontent.com/neovim/neovim.github.io/master/logos/neovim-logo-300x87.png" alt="Neovim">
 </h1>
 
