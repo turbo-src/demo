@@ -2,7 +2,7 @@
   <img src="https://raw.githubusercontent.com/neovim/neovim.github.io/master/logos/neovim-logo-300x87.png" alt="Neovim">
 </h1>
 *1
-[Documentation](https://neovim.io/doc/general/) |
+[Documentation](https://neovim.io/doc/general/) |P
 [Chat](https://app.element.io/#/room/#neovim:matrix.org) |
 [Twitter](https://twitter.com/Neovim)
 
