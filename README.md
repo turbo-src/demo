@@ -88,7 +88,7 @@ Project layout
     │  ├─ eval/         VimL subsystem
     │  ├─ event/        event-loop subsystem
     │  ├─ generators/   code generation (pre-compilation)
-    │  ├─ lib/          generic data structures
+    │  ├─ lib/          generic data structuresg
     │  ├─ lua/          Lua subsystem
     │  ├─ msgpack_rpc/  RPC subsystem
     │  ├─ os/           low-level platform code
